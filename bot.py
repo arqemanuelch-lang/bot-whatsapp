@@ -16,7 +16,7 @@ PANEL_PASSWORD = os.getenv("PANEL_PASSWORD", "cambiar_esta_clave")
 DB_PATH = "mensajes.db"
 
 # GEMINI_MODEL: podés cambiarlo por variable de entorno si querés probar otros modelos
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
 # =====================================================================
