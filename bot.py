@@ -17,7 +17,7 @@ DB_PATH = "mensajes.db"
 
 GEMINI_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-2.0-flash:generateContent"
+    "gemini-2.5-flash:generateContent"
 )
 
 # =====================================================================
@@ -136,8 +136,10 @@ def manejar_boton(from_number, boton_id):
 #  IA de respaldo (Gemini) — solo se usa si el mensaje no matchea nada
 # =====================================================================
 def preguntar_a_gemini(texto_usuario):
-    headers = {"Content-Type": "application/json"}
-    params = {"key": GEMINI_API_KEY}
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": GEMINI_API_KEY,  # va en el header, no en la URL, para que no quede en los logs
+    }
     payload = {
         "contents": [
             {
@@ -157,7 +159,7 @@ def preguntar_a_gemini(texto_usuario):
     }
     try:
         resp = requests.post(
-            GEMINI_URL, headers=headers, params=params, json=payload, timeout=15
+            GEMINI_URL, headers=headers, json=payload, timeout=15
         )
         resp.raise_for_status()
         data = resp.json()
