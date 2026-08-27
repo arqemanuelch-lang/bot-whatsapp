@@ -162,7 +162,7 @@ def preguntar_a_gemini(texto_usuario):
     print("Payload enviado:", payload)
 
     try:
-        resp = requests.post(GEMINI_URL, headers=headers, json=payload, timeout=15)
+        resp = requests.post(GEMINI_URL, headers=headers, json=payload, timeout=40)
 
         # Mostramos SIEMPRE el status y el body crudo, haya error o no
         print("Status code de Gemini:", resp.status_code)
