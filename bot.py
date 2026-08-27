@@ -7,7 +7,7 @@ app = Flask(__name__)
 # Lee el token que guardamos en Render
 TOKEN = os.environ.get("WHATSAPP_TOKEN")
 # El Phone Number ID de tu cuenta de Meta (lo sacas de tu panel de WhatsApp API)
-PHONE_NUMBER_ID = "122930466027325" 
+PHONE_NUMBER_ID = "1273198772549707"
 
 @app.route("/", methods=["GET"])
 def home():
