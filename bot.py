@@ -2,7 +2,7 @@ import os
 import sqlite3
 import requests
 from datetime import datetime
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify, render_template_string, redirect
 
 app = Flask(__name__)
 
@@ -23,6 +23,8 @@ GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_M
 #  ACÁ programás vos las respuestas fijas (sin IA)
 # =====================================================================
 PALABRAS_MENU = ["hola", "buenas", "buenos dias", "buenas tardes", "info"]
+
+TEXTO_MENU = "¡Hola! Bienvenido a Droply IA. Elegí una opción:\n1️⃣ Opción 1\n2️⃣ Opción 2"
 
 RESPUESTAS_BOTONES = {
     "opcion_1": "Elegiste la Opción 1. Acá va la info que quieras dejar programada.",
@@ -265,7 +267,8 @@ def enviar_menu_botones(to):
         },
     }
     _post_a_meta(url, headers, payload)
-    guardar_mensaje(to, "saliente", "[Menú de botones enviado]")
+    # Guardamos el texto real del menú (no un simple aviso) para que se vea bien en el panel
+    guardar_mensaje(to, "saliente", TEXTO_MENU)
 
 
 def _post_a_meta(url, headers, payload):
@@ -278,7 +281,7 @@ def _post_a_meta(url, headers, payload):
 
 
 # =====================================================================
-#  Panel web estilo WhatsApp
+#  Panel web estilo WhatsApp — con opción de responder manualmente
 #  Se abre en: https://TU-BOT.onrender.com/panel?clave=TU_CLAVE
 # =====================================================================
 PANEL_HTML = """
@@ -287,7 +290,6 @@ PANEL_HTML = """
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="refresh" content="20">
   <title>Droply IA — Mensajes</title>
   <style>
     * { box-sizing: border-box; }
@@ -296,7 +298,6 @@ PANEL_HTML = """
       margin: 0; height: 100vh; display: flex;
       background: #f0f2f5;
     }
-    /* ---------- Barra lateral de contactos ---------- */
     .sidebar {
       width: 320px; min-width: 260px; background: #fff;
       border-right: 1px solid #e9edef; display: flex; flex-direction: column;
@@ -324,7 +325,6 @@ PANEL_HTML = """
       overflow: hidden; text-overflow: ellipsis;
     }
     .contact-time { font-size: 11px; color: #667781; }
-    /* ---------- Panel de conversación ---------- */
     .chat-panel { flex: 1; display: flex; flex-direction: column; }
     .chat-header {
       background: #f0f2f5; padding: 14px 20px; border-bottom: 1px solid #e9edef;
@@ -334,7 +334,7 @@ PANEL_HTML = """
     .chat-body {
       flex: 1; overflow-y: auto; padding: 20px 8%;
       background-color: #efeae2;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3C/svg%3E");
+      display: flex; flex-direction: column;
     }
     .msg-row { display: flex; margin-bottom: 4px; }
     .msg-row.entrante { justify-content: flex-start; }
@@ -342,7 +342,7 @@ PANEL_HTML = """
     .bubble {
       max-width: 65%; padding: 8px 12px; border-radius: 8px;
       font-size: 14.5px; line-height: 1.4; box-shadow: 0 1px 0.5px rgba(0,0,0,.13);
-      position: relative;
+      white-space: pre-wrap;
     }
     .entrante .bubble { background: #fff; border-top-left-radius: 0; }
     .saliente .bubble { background: #d9fdd3; border-top-right-radius: 0; }
@@ -353,6 +353,19 @@ PANEL_HTML = """
       flex: 1; display: flex; align-items: center; justify-content: center;
       color: #667781; font-size: 15px; flex-direction: column; gap: 10px;
     }
+    .reply-bar {
+      display: flex; gap: 10px; padding: 12px 16px; background: #f0f2f5;
+      border-top: 1px solid #e9edef;
+    }
+    .reply-bar input[type=text] {
+      flex: 1; border: none; border-radius: 20px; padding: 10px 16px;
+      font-size: 14.5px; outline: none;
+    }
+    .reply-bar button {
+      background: #075E54; color: white; border: none; border-radius: 20px;
+      padding: 0 22px; font-size: 14px; cursor: pointer; font-weight: 600;
+    }
+    .reply-bar button:hover { background: #064c44; }
   </style>
 </head>
 <body>
@@ -385,7 +398,7 @@ PANEL_HTML = """
           <div class="contact-preview">{{ numero_activo }}</div>
         </div>
       </div>
-      <div class="chat-body">
+      <div class="chat-body" id="chatBody">
         {% for direccion, texto, fecha in conversaciones[numero_activo].mensajes %}
           <div class="msg-row {{ direccion }}">
             <div class="bubble">
@@ -395,6 +408,12 @@ PANEL_HTML = """
           </div>
         {% endfor %}
       </div>
+      <form class="reply-bar" method="POST" action="/panel/responder">
+        <input type="hidden" name="clave" value="{{ clave }}">
+        <input type="hidden" name="numero" value="{{ numero_activo }}">
+        <input type="text" name="texto" placeholder="Escribí un mensaje" required autofocus>
+        <button type="submit">Enviar</button>
+      </form>
     {% else %}
       <div class="empty-state">
         <div style="font-size:40px;">💬</div>
@@ -403,6 +422,13 @@ PANEL_HTML = """
     {% endif %}
   </div>
 
+  <script>
+    // Bajar el scroll del chat hasta el último mensaje
+    var chatBody = document.getElementById('chatBody');
+    if (chatBody) { chatBody.scrollTop = chatBody.scrollHeight; }
+    // Refrescar la página cada 20 segundos para ver mensajes nuevos, sin perder la conversación abierta
+    setTimeout(function () { window.location.reload(); }, 20000);
+  </script>
 </body>
 </html>
 """
@@ -436,7 +462,6 @@ def panel():
 
     numero_activo = request.args.get("numero")
     if not numero_activo and conversaciones:
-        # Por defecto, abrí la conversación más reciente
         numero_activo = list(conversaciones.keys())[-1]
 
     return render_template_string(
@@ -445,6 +470,26 @@ def panel():
         numero_activo=numero_activo,
         clave=clave,
     )
+
+
+@app.route("/panel/responder", methods=["POST"])
+def panel_responder():
+    clave = request.form.get("clave")
+    if clave != PANEL_PASSWORD:
+        return "Acceso denegado.", 403
+
+    numero = request.form.get("numero")
+    texto = request.form.get("texto", "").strip()
+
+    if numero and texto:
+        enviar_mensaje_texto(numero, texto)
+
+    return redirect(f"/panel?clave={clave}&numero={numero}")
+
+
+# =====================================================================
+#  Panel viejo (por compatibilidad, ya no se usa)
+# =====================================================================
 
 
 if __name__ == "__main__":
