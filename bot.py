@@ -35,7 +35,7 @@ RESPUESTA_DEFAULT = (
 
 
 # =====================================================================
-#  Base de datos: guarda cada mensaje entrante y saliente
+#  Base de datos: guarda cada mensaje y cada contacto
 # =====================================================================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -50,6 +50,14 @@ def init_db():
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS contactos (
+            numero TEXT PRIMARY KEY,
+            nombre TEXT
+        )
+        """
+    )
     conn.commit()
     conn.close()
 
@@ -59,6 +67,21 @@ def guardar_mensaje(numero, direccion, texto):
     conn.execute(
         "INSERT INTO mensajes (numero, direccion, texto, fecha) VALUES (?, ?, ?, ?)",
         (numero, direccion, texto, datetime.utcnow().strftime("%d/%m %H:%M:%S")),
+    )
+    conn.commit()
+    conn.close()
+
+
+def guardar_contacto(numero, nombre):
+    if not nombre:
+        return
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        """
+        INSERT INTO contactos (numero, nombre) VALUES (?, ?)
+        ON CONFLICT(numero) DO UPDATE SET nombre = excluded.nombre
+        """,
+        (numero, nombre),
     )
     conn.commit()
     conn.close()
@@ -92,6 +115,13 @@ def receive_message():
         value = data["entry"][0]["changes"][0]["value"]
         if "messages" not in value:
             return jsonify({"status": "ignored"}), 200
+
+        # WhatsApp manda el nombre del contacto junto con el mensaje entrante
+        for contacto in value.get("contacts", []):
+            nombre = contacto.get("profile", {}).get("name")
+            numero_contacto = contacto.get("wa_id")
+            if numero_contacto:
+                guardar_contacto(numero_contacto, nombre)
 
         message_data = value["messages"][0]
         from_number = message_data["from"]
@@ -137,7 +167,7 @@ def manejar_boton(from_number, boton_id):
 def preguntar_a_gemini(texto_usuario):
     headers = {
         "Content-Type": "application/json",
-        "x-goog-api-key": GEMINI_API_KEY,  # va en el header, no en la URL, para que no quede en los logs
+        "x-goog-api-key": GEMINI_API_KEY,
     }
     payload = {
         "contents": [
@@ -164,12 +194,10 @@ def preguntar_a_gemini(texto_usuario):
     try:
         resp = requests.post(GEMINI_URL, headers=headers, json=payload, timeout=40)
 
-        # Mostramos SIEMPRE el status y el body crudo, haya error o no
         print("Status code de Gemini:", resp.status_code)
         print("Body crudo de la respuesta de Gemini:", resp.text)
 
         if resp.status_code >= 400:
-            # Intentamos mostrar el error de Google en formato legible si viene en JSON
             try:
                 error_json = resp.json()
                 print("Detalle del error (JSON):", error_json.get("error", error_json))
@@ -250,7 +278,7 @@ def _post_a_meta(url, headers, payload):
 
 
 # =====================================================================
-#  Panel web para ver los mensajes desde el celular o la compu
+#  Panel web estilo WhatsApp
 #  Se abre en: https://TU-BOT.onrender.com/panel?clave=TU_CLAVE
 # =====================================================================
 PANEL_HTML = """
@@ -259,34 +287,122 @@ PANEL_HTML = """
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="refresh" content="15">
-  <title>Panel Droply IA</title>
+  <meta http-equiv="refresh" content="20">
+  <title>Droply IA — Mensajes</title>
   <style>
-    body { font-family: Arial, sans-serif; background:#f2f2f2; margin:0; padding:16px; }
-    h1 { font-size: 18px; color:#1f6feb; }
-    .numero { background:white; border-radius:10px; margin-bottom:14px; padding:12px; box-shadow:0 1px 3px rgba(0,0,0,.1); }
-    .numero h2 { font-size:15px; margin:0 0 8px 0; }
-    .msg { padding:6px 10px; border-radius:8px; margin:4px 0; max-width:85%; font-size:14px; }
-    .entrante { background:#e8f0fe; }
-    .saliente { background:#d1f5d3; margin-left:auto; text-align:right; }
-    .fecha { font-size:11px; color:#888; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+      margin: 0; height: 100vh; display: flex;
+      background: #f0f2f5;
+    }
+    /* ---------- Barra lateral de contactos ---------- */
+    .sidebar {
+      width: 320px; min-width: 260px; background: #fff;
+      border-right: 1px solid #e9edef; display: flex; flex-direction: column;
+    }
+    .sidebar-header {
+      background: #075E54; color: white; padding: 16px;
+      font-size: 17px; font-weight: 600;
+    }
+    .contact-list { overflow-y: auto; flex: 1; }
+    .contact {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 16px; cursor: pointer; text-decoration: none; color: inherit;
+      border-bottom: 1px solid #f2f2f2;
+    }
+    .contact:hover, .contact.active { background: #f5f6f6; }
+    .avatar {
+      width: 42px; height: 42px; border-radius: 50%; background: #25D366;
+      color: white; display: flex; align-items: center; justify-content: center;
+      font-weight: 600; font-size: 16px; flex-shrink: 0;
+    }
+    .contact-info { min-width: 0; flex: 1; }
+    .contact-name { font-size: 15px; font-weight: 500; color: #111b21; }
+    .contact-preview {
+      font-size: 13px; color: #667781; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis;
+    }
+    .contact-time { font-size: 11px; color: #667781; }
+    /* ---------- Panel de conversación ---------- */
+    .chat-panel { flex: 1; display: flex; flex-direction: column; }
+    .chat-header {
+      background: #f0f2f5; padding: 14px 20px; border-bottom: 1px solid #e9edef;
+      display: flex; align-items: center; gap: 12px;
+    }
+    .chat-header .contact-name { font-size: 16px; }
+    .chat-body {
+      flex: 1; overflow-y: auto; padding: 20px 8%;
+      background-color: #efeae2;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3C/svg%3E");
+    }
+    .msg-row { display: flex; margin-bottom: 4px; }
+    .msg-row.entrante { justify-content: flex-start; }
+    .msg-row.saliente { justify-content: flex-end; }
+    .bubble {
+      max-width: 65%; padding: 8px 12px; border-radius: 8px;
+      font-size: 14.5px; line-height: 1.4; box-shadow: 0 1px 0.5px rgba(0,0,0,.13);
+      position: relative;
+    }
+    .entrante .bubble { background: #fff; border-top-left-radius: 0; }
+    .saliente .bubble { background: #d9fdd3; border-top-right-radius: 0; }
+    .bubble .fecha {
+      font-size: 10.5px; color: #667781; text-align: right; margin-top: 4px;
+    }
+    .empty-state {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+      color: #667781; font-size: 15px; flex-direction: column; gap: 10px;
+    }
   </style>
 </head>
 <body>
-  <h1>📋 Mensajes — Droply IA (se actualiza solo cada 15s)</h1>
-  {% for numero, mensajes in conversaciones.items() %}
-    <div class="numero">
-      <h2>📱 {{ numero }}</h2>
-      {% for direccion, texto, fecha in mensajes %}
-        <div class="msg {{ 'entrante' if direccion=='entrante' else 'saliente' }}">
-          {{ texto }}
-          <div class="fecha">{{ fecha }}</div>
-        </div>
+
+  <div class="sidebar">
+    <div class="sidebar-header">📋 Droply IA</div>
+    <div class="contact-list">
+      {% for numero, info in conversaciones.items() %}
+        {% set ultimo = info.mensajes[-1] %}
+        <a class="contact {{ 'active' if numero == numero_activo else '' }}" href="?clave={{ clave }}&numero={{ numero }}">
+          <div class="avatar">{{ info.inicial }}</div>
+          <div class="contact-info">
+            <div class="contact-name">{{ info.nombre }}</div>
+            <div class="contact-preview">{{ ultimo[1][:40] }}</div>
+          </div>
+          <div class="contact-time">{{ ultimo[2].split(' ')[1] if ' ' in ultimo[2] else '' }}</div>
+        </a>
+      {% else %}
+        <div style="padding:16px; color:#667781;">Todavía no llegaron mensajes.</div>
       {% endfor %}
     </div>
-  {% else %}
-    <p>Todavía no llegaron mensajes.</p>
-  {% endfor %}
+  </div>
+
+  <div class="chat-panel">
+    {% if numero_activo and numero_activo in conversaciones %}
+      <div class="chat-header">
+        <div class="avatar">{{ conversaciones[numero_activo].inicial }}</div>
+        <div>
+          <div class="contact-name">{{ conversaciones[numero_activo].nombre }}</div>
+          <div class="contact-preview">{{ numero_activo }}</div>
+        </div>
+      </div>
+      <div class="chat-body">
+        {% for direccion, texto, fecha in conversaciones[numero_activo].mensajes %}
+          <div class="msg-row {{ direccion }}">
+            <div class="bubble">
+              {{ texto }}
+              <div class="fecha">{{ fecha }}</div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state">
+        <div style="font-size:40px;">💬</div>
+        <div>Elegí una conversación para verla acá</div>
+      </div>
+    {% endif %}
+  </div>
+
 </body>
 </html>
 """
@@ -302,13 +418,33 @@ def panel():
     filas = conn.execute(
         "SELECT numero, direccion, texto, fecha FROM mensajes ORDER BY id ASC"
     ).fetchall()
+    contactos_filas = conn.execute("SELECT numero, nombre FROM contactos").fetchall()
     conn.close()
+
+    nombres = {numero: nombre for numero, nombre in contactos_filas if nombre}
 
     conversaciones = {}
     for numero, direccion, texto, fecha in filas:
-        conversaciones.setdefault(numero, []).append((direccion, texto, fecha))
+        if numero not in conversaciones:
+            nombre = nombres.get(numero, numero)
+            conversaciones[numero] = {
+                "nombre": nombre,
+                "inicial": nombre[0].upper() if nombre else "?",
+                "mensajes": [],
+            }
+        conversaciones[numero]["mensajes"].append((direccion, texto, fecha))
 
-    return render_template_string(PANEL_HTML, conversaciones=conversaciones)
+    numero_activo = request.args.get("numero")
+    if not numero_activo and conversaciones:
+        # Por defecto, abrí la conversación más reciente
+        numero_activo = list(conversaciones.keys())[-1]
+
+    return render_template_string(
+        PANEL_HTML,
+        conversaciones=conversaciones,
+        numero_activo=numero_activo,
+        clave=clave,
+    )
 
 
 if __name__ == "__main__":
