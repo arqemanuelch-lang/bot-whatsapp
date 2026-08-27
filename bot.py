@@ -15,10 +15,7 @@ PANEL_PASSWORD = os.getenv("PANEL_PASSWORD", "cambiar_esta_clave")
 
 DB_PATH = "mensajes.db"
 
-GEMINI_URL = (
-    "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-2.5-flash:generateContent"
-)
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
 
 # =====================================================================
 #  ACÁ programás vos las respuestas fijas (sin IA)
