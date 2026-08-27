@@ -4,95 +4,75 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# Lee el token que guardamos en Render
-TOKEN = os.environ.get("WHATSAPP_TOKEN")
-# El Phone Number ID de tu cuenta de Meta (lo sacas de tu panel de WhatsApp API)
-PHONE_NUMBER_ID = "122930466027325"
+WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
+PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
+VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "tu_token_de_verificacion")
 
-@app.route("/", methods=["GET"])
-def home():
-    return "¡El Bot de Droply IA está activo y respondiendo!", 200
 
-# Ruta para verificar y recibir mensajes de WhatsApp
-@app.route("/webhook", methods=["GET", "POST"])
-def webhook():
-    # Verificación del webhook con Meta (GET)
-    if request.method == "GET":
-        verify_token = "mi_token_de_verificacion" # El token que pusiste en Meta
-        mode = request.args.get("hub.mode")
-        token = request.args.get("hub.verify_token")
-        challenge = request.args.get("hub.challenge")
-        
-        if mode and token:
-            if mode == "subscribe" and token == verify_token:
-                return challenge, 200
-            else:
-                return "Verification failed", 403
-        return "Hello World", 200
+@app.route("/webhook", methods=["GET"])
+def verify_webhook():
+    mode = request.args.get("hub.mode")
+    token = request.args.get("hub.verify_token")
+    challenge = request.args.get("hub.challenge")
 
-    # Recepción de mensajes (POST)
-    elif request.method == "POST":
-        data = request.json
-        print(data) # Esto es lo que ves en los logs de Render
-        
-        try:
-            # Intentamos extraer el mensaje entrante
-            entry = data["entry"][0]
-            changes = entry["changes"][0]
-            value = changes["value"]
-            
-            if "messages" in value:
-                message = value["messages"][0]
-                from_number = message["from"] # Número del cliente
-                
-                # Responde automáticamente con un menú de botones
-                enviar_botones(from_number)
-                
-        except Exception as e:
-            print(f"Error procesando el mensaje: {e}")
-            
-        return "EVENT_RECEIVED", 200
+    if mode and token:
+        if mode == "subscribe" and token == VERIFY_TOKEN:
+            return challenge, 200
+        else:
+            return "Verification failed", 403
+    return "Hello world", 200
 
-def enviar_botones(to_phone):
-    url = f"https://graph.facebook.com/v17.0/{PHONE_NUMBER_ID}/messages"
+
+@app.route("/webhook", methods=["POST"])
+def receive_message():
+    data = request.json
+    print("Webhook recibido:", data)
+
+    try:
+        value = data["entry"][0]["changes"][0]["value"]
+        if "messages" in value:
+            message_data = value["messages"][0]
+            from_number = message_data["from"]
+            msg_body = message_data.get("text", {}).get("body", "").lower()
+
+            if "hola" in msg_body:
+                send_interactive_menu(from_number)
+
+    except Exception as e:
+        print("Error procesando mensaje:", e)
+
+    return jsonify({"status": "success"}), 200
+
+
+def send_interactive_menu(to):
+    url = f"https://graph.facebook.com/v26.0/{PHONE_NUMBER_ID}/messages"
     headers = {
-        "Authorization": f"Bearer {TOKEN}",
-        "Content-Type": "application/json"
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json",
     }
-    
-    # Estructura del mensaje interactivo con botones
     payload = {
         "messaging_product": "whatsapp",
-        "to": to_phone,
+        "to": to,
         "type": "interactive",
         "interactive": {
             "type": "button",
-            "body": {
-                "text": "¡Hola! Bienvenido a Droply IA 🤖. ¿En qué te podemos ayudar hoy?"
-            },
+            "body": {"text": "¡Hola! Bienvenido a Droply IA. Selecciona una opción:"},
             "action": {
                 "buttons": [
-                    {
-                        "type": "reply",
-                        "reply": {
-                            "id": "btn_1",
-                            "title": "Ver Catálogo 🛍️"
-                        }
-                    },
-                    {
-                        "type": "reply",
-                        "reply": {
-                            "id": "btn_2",
-                            "title": "Hablar con Asesor 8️⃣"
-                        }
-                    }
+                    {"type": "reply", "reply": {"id": "opcion_1", "title": "Opción 1"}},
+                    {"type": "reply", "reply": {"id": "opcion_2", "title": "Opción 2"}},
                 ]
-            }
-        }
+            },
+        },
     }
-    
-    response = requests.post(url, headers=headers, json=payload)
-    print("Respuesta de Meta al enviar botones:", response.json())
+
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        print("Status:", response.status_code)
+        print("Respuesta de Meta al enviar botones:", response.json())
+    except requests.exceptions.RequestException as e:
+        print("Error al llamar a la API de Meta:", e)
+
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
