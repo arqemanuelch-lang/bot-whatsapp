@@ -15,7 +15,9 @@ PANEL_PASSWORD = os.getenv("PANEL_PASSWORD", "cambiar_esta_clave")
 
 DB_PATH = "mensajes.db"
 
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
+# GEMINI_MODEL: podés cambiarlo por variable de entorno si querés probar otros modelos
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
 # =====================================================================
 #  ACÁ programás vos las respuestas fijas (sin IA)
@@ -154,15 +156,43 @@ def preguntar_a_gemini(texto_usuario):
             }
         ]
     }
+
+    print("---- Llamando a Gemini ----")
+    print("URL:", GEMINI_URL)
+    print("Payload enviado:", payload)
+
     try:
-        resp = requests.post(
-            GEMINI_URL, headers=headers, json=payload, timeout=15
-        )
-        resp.raise_for_status()
+        resp = requests.post(GEMINI_URL, headers=headers, json=payload, timeout=15)
+
+        # Mostramos SIEMPRE el status y el body crudo, haya error o no
+        print("Status code de Gemini:", resp.status_code)
+        print("Body crudo de la respuesta de Gemini:", resp.text)
+
+        if resp.status_code >= 400:
+            # Intentamos mostrar el error de Google en formato legible si viene en JSON
+            try:
+                error_json = resp.json()
+                print("Detalle del error (JSON):", error_json.get("error", error_json))
+            except ValueError:
+                print("La respuesta de error no vino en JSON.")
+            resp.raise_for_status()
+
         data = resp.json()
-        return data["candidates"][0]["content"]["parts"][0]["text"]
+
+        candidatos = data.get("candidates", [])
+        if not candidatos:
+            print("Gemini no devolvió 'candidates'. Respuesta completa:", data)
+            raise ValueError("Gemini no devolvió candidatos")
+
+        partes = candidatos[0].get("content", {}).get("parts", [])
+        for bloque in partes:
+            if "text" in bloque:
+                return bloque["text"]
+
+        raise ValueError("Gemini no devolvió texto en 'parts'")
+
     except Exception as e:
-        print("Error al consultar Gemini:", e)
+        print("Error al consultar Gemini:", repr(e))
         return "Perdón, tuve un problema para responderte. Un encargado te va a contestar pronto."
 
 
