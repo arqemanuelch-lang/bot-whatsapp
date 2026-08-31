@@ -184,16 +184,20 @@ def receive_message():
 #  Lógica del Bot (Kit Maestro)
 # =====================================================================
 def manejar_texto(from_number, msg_body_lower):
-    coincide_frase = any(frase in msg_body_lower for frase in PRODUCTOS["kit_maestro"]["frases_entrada"])
-    es_saludo = any(palabra in msg_body_lower for palabra in PALABRAS_MENU)
+    # Limpiamos el mensaje de espacios extra y lo pasamos a minúsculas
+    msg_limpio = msg_body_lower.strip()
+    
+    # 🎯 ACÁ DEFINÍS EL ÚNICO MENSAJE EXACTO AL QUE QUERÉS QUE RESPONDA
+    MENSAJE_UNICO = "kit maestro"
 
-    if coincide_frase or es_saludo:
+    if msg_limpio == MENSAJE_UNICO:
         enviar_bienvenida_pack(from_number)
     elif GEMINI_API_KEY:
-        respuesta = preguntar_a_gemini(msg_body_lower)
+        # Si escriben cualquier otra cosa, pasa a la IA o responde por defecto
+        respuesta = preguntar_a_gemini(msg_limpio)
         enviar_mensaje_texto(from_number, respuesta)
     else:
-        enviar_bienvenida_pack(from_number)
+        enviar_mensaje_texto(from_number, RESPUESTA_DEFAULT))
 
 def manejar_boton(from_number, opcion_id):
     if opcion_id == "ver_resena":
