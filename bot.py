@@ -202,35 +202,59 @@ def manejar_boton(from_number, opcion_id):
         producto = PRODUCTOS["kit_maestro"]
         
         # ACÁ VA EL TEXTO DETALLADO QUE PEDISTE
+        detalle = (def manejar_boton(from_number, opcion_id):
+    if opcion_id == "ver_resena":
+        producto = PRODUCTOS["kit_maestro"]
+        
         detalle = (
-           "📖 *Contenido del Kit Maestro (8 Manuales en PDF)*:\n\n"
+            "📖 *Contenido del Kit Maestro (8 Manuales en PDF)*:\n\n"
             
             "1️⃣ *Cómo se proyecta una Vivienda* (J.L. Moia)\n"
-            "🔗 Ver adelanto: https://link-del-libro-1.com\n\n"
+            "👉 *[Ver adelanto]*: https://drive.google.com/file/d/12MHAHdQZ7Bm7RTBTD1SVdd0XxDXNO54L/view?usp=sharing\n\n"
             
             "2️⃣ *Curso básico de instalaciones eléctricas* (Calloni Rodrigues)\n"
-            "🔗 Ver adelanto: https://link-del-libro-2.com\n\n"
+            "👉 *[Ver adelanto]*: https://drive.google.com/file/d/1XTeI93qPpw0BT2J0l7qhiY_MJKd1iXHD/view?usp=sharing\n\n"
             
             "3️⃣ *Instalaciones Eléctricas Monofásicas* (Ing. César Anibal Rey)\n"
-            "🔗 Ver adelanto: https://link-del-libro-3.com\n\n"
+            "👉 *[Ver adelanto]*: https://drive.google.com/file/d/19TKBsowVtj4Q0w5OSOaZ7AeS7aBEs_Kw/view?usp=sharing\n\n"
             
             "4️⃣ *Manual para el Técnico Instalador Electricista Domiciliario* (Levy)\n"
-            "🔗 Ver adelanto: https://link-del-libro-4.com\n\n"
+            "👉 *[Ver adelanto]*: https://drive.google.com/file/d/19TKBsowVtj4Q0w5OSOaZ7AeS7aBEs_Kw/view?usp=sharing\n\n"
             
             "5️⃣ *Manual Práctico de la Construcción* (Jaime Nisnovich)\n"
-            "🔗 Ver adelanto: https://link-del-libro-5.com\n\n"
+            "👉 *[Ver adelanto]*: https://drive.google.com/file/d/1kKYvLhGcKLHqmit32kLVuiX3swnBGKGv/view?usp=sharing\n\n"
             
             "6️⃣ *Manual Práctico de Instalaciones Sanitarias: Tomo 1 - Agua fría y caliente* (Jaime Nisnovich, con Víctor M. Castro y Pedro E. Lázaro)\n"
-            "🔗 Ver adelanto: https://link-del-libro-6.com\n\n"
+            "👉 *[Ver adelanto]*: https://drive.google.com/file/d/1oHuKcqXp2SFBAyYSbmqByJFjyn7i7yuY/view?usp=sharing\n\n"
             
             "7️⃣ *Manual Práctico de Instalaciones Sanitarias: Tomo 2 - Cloacal y pluvial* (Jaime Nisnovich, con Víctor M. Castro y Pedro E. Lázaro)\n"
-            "🔗 Ver adelanto: https://link-del-libro-7.com\n\n"
+            "👉 *[Ver adelanto]*: https://drive.google.com/file/d/1dQQC9-GfUjkS-GTAfzL8x1_G4A15k1GO/view?usp=sharing\n\n"
             
             "8️⃣ *Manual Práctico para Proyectar Buenas Viviendas* (Jaime Nisnovich)\n"
-            "🔗 Ver adelanto:https://lix.li/Xmpai\n"
+            "👉 *[Ver adelanto]*: https://drive.google.com/file/d/1_YZf_GexbX-nE-PK4fBWlv05Ygu1iVw5/view?usp=sharing\n\n"
             
             f"💰 *Precio promocional del Kit Completo:* {producto['precio']}"
         )
+        
+        enviar_mensaje_texto(from_number, detalle)
+        enviar_botones_comerciales(from_number)
+
+    elif opcion_id == "comprar_pack":
+        producto = PRODUCTOS["kit_maestro"]
+        enviar_mensaje_texto(
+            from_number,
+            f"🎉 ¡Excelente decisión! Podés abonar de forma segura en el siguiente link:\n\n"
+            f"🔗 {producto['link_pago']}\n\n"
+            "Una vez realizado el pago, envianos el comprobante por acá y te mandamos los PDFs al instante. 📥"
+        )
+
+    elif opcion_id == "hablar_vendedor":
+        enviar_mensaje_texto(
+            from_number,
+            "💬 Perfecto. En unos minutos un asesor humano te va a responder por este medio para ayudarte con tus dudas. ¡Quedate atento!"
+        )
+    else:
+        enviar_bienvenida_pack(from_number)  )
         
         
         enviar_mensaje_texto(from_number, detalle)
