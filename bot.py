@@ -203,21 +203,23 @@ def manejar_boton(from_number, opcion_id):
         
         # ACÁ VA EL TEXTO DETALLADO QUE PEDISTE
         detalle = (
-            "📖 *Detalle del Kit Maestro (8 Manuales en PDF):*\n\n"
-            "🏠 **1. Diseño y Arquitectura (Moia + Manual Naranja):**\n"
-            "• Cómo proyectar casas y departamentos funcionales.\n"
-            "• Optimización de espacios, ventilación y asoleamiento.\n"
-            "• Incluye catálogo con más de **2.000 esquemas de plantas**.\n\n"
-            "🧱 **2. Construcción y Obra:**\n"
-            "• Guía práctica para el auxiliar y técnico.\n"
-            "• Desde cimientos, muros y techos hasta revoques.\n"
-            "• Cálculo y costos precisos de materiales.\n\n"
-            "🚰 **3. Instalaciones Sanitarias (Tomos 1 y 2):**\n"
-            "• **Tomo 1:** Agua fría y caliente, bombas, tanques y dimensionamiento hidráulico.\n"
-            "• **Tomo 2:** Cloacas y desagües pluviales sin obstrucciones bajo norma.\n\n"
-            "⚡ **4. Instalaciones Eléctricas (Calloni + Levy):**\n"
-            "• Teoría, normativa AEA y cálculo de cargas.\n"
-            "• Práctica de montaje, cableado domiciliario y solución de fallas.\n\n"
+            "📖 *Contenido del Kit Maestro (8 Manuales en PDF)*:\n\n"
+            
+            "🏠 *1. Área Arquitectura y Diseño*\n"
+            "• *Cómo se proyecta una Vivienda* (J.L. Moia)\n"
+            "• *Manual Práctico para Proyectar Buenas Viviendas* (Catálogo Nisno con más de 2.000 esquemas)\n\n"
+            
+            "⚡ *2. Área Instalaciones Eléctricas*\n"
+            "• *Curso básico de instalaciones eléctricas* (Calloni Rodrigues)\n"
+            "• *Instalaciones Eléctricas Monofásicas*\n"
+            "• *Manual para el Técnico Instalador Electricista Domiciliario* (Levy)\n\n"
+            
+            "🧱 *3. Área Construcción*\n"
+            "• *Manual Práctico de Construcción*\n\n"
+            
+            "🚰 *4. Área Instalaciones Sanitarias*\n"
+            "• *Manual Práctico de Instalaciones Sanitarias (Tomo 1)* - Agua fría y caliente\n"
+            "• *Manual Práctico de Instalaciones Sanitarias (Tomo 2)* - Desagües y pluviales\n\n"
             f"💰 *Precio promocional:* {producto['precio']}"
         )
         
