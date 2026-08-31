@@ -61,6 +61,18 @@ def init_db():
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS comprobantes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            numero TEXT NOT NULL,
+            media_id TEXT NOT NULL,
+            mime_type TEXT,
+            estado TEXT NOT NULL DEFAULT 'pendiente',
+            fecha TEXT NOT NULL
+        )
+        """
+    )
     conn.commit()
     conn.close()
 
@@ -86,6 +98,35 @@ def guardar_contacto(numero, nombre):
         """,
         (numero, nombre),
     )
+    conn.commit()
+    conn.close()
+
+
+def guardar_comprobante(numero, media_id, mime_type):
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        "INSERT INTO comprobantes (numero, media_id, mime_type, estado, fecha) VALUES (?, ?, ?, 'pendiente', ?)",
+        (numero, media_id, mime_type, datetime.utcnow().strftime("%d/%m %H:%M:%S")),
+    )
+    conn.commit()
+    conn.close()
+
+
+def obtener_comprobantes_pendientes_por_numero():
+    conn = sqlite3.connect(DB_PATH)
+    filas = conn.execute(
+        "SELECT numero, id, media_id, mime_type, fecha FROM comprobantes WHERE estado = 'pendiente'"
+    ).fetchall()
+    conn.close()
+    resultado = {}
+    for numero, comp_id, media_id, mime_type, fecha in filas:
+        resultado[numero] = {"id": comp_id, "media_id": media_id, "mime_type": mime_type, "fecha": fecha}
+    return resultado
+
+
+def marcar_comprobante_aprobado(comprobante_id):
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("UPDATE comprobantes SET estado = 'aprobado' WHERE id = ?", (comprobante_id,))
     conn.commit()
     conn.close()
 
@@ -160,6 +201,21 @@ def receive_message():
             if opcion_id:
                 guardar_mensaje(from_number, "entrante", f"[Opción elegida] {opcion_id}")
                 manejar_boton(from_number, opcion_id)
+
+        elif tipo in ("image", "document"):
+            media_obj = message_data.get(tipo, {})
+            media_id = media_obj.get("id")
+            mime_type = media_obj.get("mime_type", "")
+            if media_id:
+                guardar_comprobante(from_number, media_id, mime_type)
+                guardar_mensaje(
+                    from_number, "entrante", "📎 Comprobante recibido (pendiente de aprobación)"
+                )
+                enviar_mensaje_texto(
+                    from_number,
+                    "¡Recibimos tu comprobante! 📎 En breve lo revisamos y te enviamos los "
+                    "8 manuales completos. Gracias por tu paciencia.",
+                )
 
     except Exception as e:
         print("Error procesando mensaje:", e)
@@ -296,6 +352,41 @@ def _enviar_interactivo(to, payload, texto_para_guardar):
     guardar_mensaje(to, "saliente", texto_para_guardar)
 
 
+def enviar_manuales_completos(to):
+    detalle = (
+        "✅ *¡Pago confirmado! Acá tenés tus 8 manuales completos:*\n\n"
+        "1️⃣ *Cómo se proyecta una Vivienda* (J.L. Moia)\n"
+        "👉 https://drive.google.com/file/d/12MHAHdQZ7Bm7RTBTD1SVdd0XxDXNO54L/view?usp=sharing\n\n"
+        "2️⃣ *Curso básico de instalaciones eléctricas* (Calloni Rodrigues)\n"
+        "👉 https://drive.google.com/file/d/1XTeI93qPpw0BT2J0l7qhiY_MJKd1iXHD/view?usp=sharing\n\n"
+        "3️⃣ *Instalaciones Eléctricas Monofásicas* (Ing. César Anibal Rey)\n"
+        "👉 https://drive.google.com/file/d/19TKBsowVtj4Q0w5OSOaZ7AeS7aBEs_Kw/view?usp=sharing\n\n"
+        "4️⃣ *Manual para el Técnico Instalador Electricista Domiciliario* (Levy)\n"
+        "👉 https://drive.google.com/file/d/19TKBsowVtj4Q0w5OSOaZ7AeS7aBEs_Kw/view?usp=sharing\n\n"
+        "5️⃣ *Manual Práctico de la Construcción* (Jaime Nisnovich)\n"
+        "👉 https://drive.google.com/file/d/1kKYvLhGcKLHqmit32kLVuiX3swnBGKGv/view?usp=sharing\n\n"
+        "6️⃣ *Manual Práctico de Instalaciones Sanitarias: Tomo 1* (Nisnovich, Castro, Lázaro)\n"
+        "👉 https://drive.google.com/file/d/1oHuKcqXp2SFBAyYSbmqByJFjyn7i7yuY/view?usp=sharing\n\n"
+        "7️⃣ *Manual Práctico de Instalaciones Sanitarias: Tomo 2* (Nisnovich, Castro, Lázaro)\n"
+        "👉 https://drive.google.com/file/d/1dQQC9-GfUjkS-GTAfzL8x1_G4A15k1GO/view?usp=sharing\n\n"
+        "8️⃣ *Manual Práctico para Proyectar Buenas Viviendas* (Jaime Nisnovich)\n"
+        "👉 https://drive.google.com/file/d/1_YZf_GexbX-nE-PK4fBWlv05Ygu1iVw5/view?usp=sharing\n\n"
+        "¡Gracias por tu compra! 🙌"
+    )
+    enviar_mensaje_texto(to, detalle)
+
+
+def obtener_media_de_meta(media_id):
+    """Descarga una imagen/documento recibido por WhatsApp usando el WHATSAPP_TOKEN."""
+    headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}"}
+    info = requests.get(f"https://graph.facebook.com/v21.0/{media_id}", headers=headers, timeout=15)
+    info.raise_for_status()
+    url = info.json()["url"]
+    archivo = requests.get(url, headers=headers, timeout=15)
+    archivo.raise_for_status()
+    return archivo.content, info.json().get("mime_type", "application/octet-stream")
+
+
 # =====================================================================
 #  IA de Respaldo (Gemini) — Interactions API
 # =====================================================================
@@ -423,6 +514,15 @@ PANEL_HTML = """
     form.responder input { flex:1; padding:10px; border:1px solid #ccc; border-radius:8px; margin-right:8px; }
     form.responder button { padding:10px 16px; background:#1f6feb; color:white; border:none; border-radius:8px; }
     .salir { font-size:12px; color:#888; text-decoration:none; float:right; padding:14px; }
+    .comprobante { background:#fff8e1; border:1px solid #ffd54f; border-radius:10px; padding:12px;
+                   margin:10px 14px; font-size:14px; }
+    .comprobante img { max-width:100%; border-radius:8px; margin:8px 0; display:block; }
+    .comprobante a.ver { color:#1f6feb; font-size:13px; }
+    .comprobante form { margin-top:8px; }
+    .btn-aprobar { background:#2e7d32; color:white; border:none; padding:8px 14px; border-radius:8px;
+                   cursor:pointer; font-size:14px; }
+    .badge { background:#ffd54f; color:#7a5b00; font-size:11px; padding:2px 6px; border-radius:6px;
+             margin-left:6px; }
   </style>
 </head>
 <body>
@@ -431,6 +531,7 @@ PANEL_HTML = """
     {% for numero, datos in conversaciones.items() %}
       <a href="/panel?numero={{ numero }}" class="{{ 'activo' if numero == numero_activo else '' }}">
         <span class="avatar">{{ datos.inicial }}</span>{{ datos.nombre }}
+        {% if numero in comprobantes_pendientes %}<span class="badge">📎 pendiente</span>{% endif %}
       </a>
     {% else %}
       <p style="padding:14px;">Sin mensajes todavía.</p>
@@ -439,6 +540,22 @@ PANEL_HTML = """
   <div class="chat">
     {% if numero_activo and conversaciones.get(numero_activo) %}
       <div class="header">📱 {{ conversaciones[numero_activo].nombre }} ({{ numero_activo }})</div>
+      {% if numero_activo in comprobantes_pendientes %}
+        {% set comp = comprobantes_pendientes[numero_activo] %}
+        <div class="comprobante">
+          📎 <strong>Comprobante pendiente de aprobación</strong> ({{ comp.fecha }})
+          {% if comp.mime_type.startswith('image') %}
+            <img src="/panel/media/{{ comp.id }}" alt="Comprobante">
+          {% else %}
+            <br><a class="ver" href="/panel/media/{{ comp.id }}" target="_blank">📄 Ver archivo adjunto</a>
+          {% endif %}
+          <form method="POST" action="/panel/aprobar">
+            <input type="hidden" name="numero" value="{{ numero_activo }}">
+            <input type="hidden" name="comprobante_id" value="{{ comp.id }}">
+            <button type="submit" class="btn-aprobar">✅ Aprobar y enviar manuales</button>
+          </form>
+        </div>
+      {% endif %}
       <div class="mensajes">
         {% for direccion, texto, fecha in conversaciones[numero_activo].mensajes %}
           <div class="msg {{ 'entrante' if direccion == 'entrante' else 'saliente' }}">
@@ -512,9 +629,46 @@ def panel():
     if not numero_activo and conversaciones:
         numero_activo = list(conversaciones.keys())[-1]
 
+    comprobantes_pendientes = obtener_comprobantes_pendientes_por_numero()
+
     return render_template_string(
-        PANEL_HTML, conversaciones=conversaciones, numero_activo=numero_activo
+        PANEL_HTML,
+        conversaciones=conversaciones,
+        numero_activo=numero_activo,
+        comprobantes_pendientes=comprobantes_pendientes,
     )
+
+
+@app.route("/panel/media/<int:comprobante_id>")
+def panel_media(comprobante_id):
+    if not logueado():
+        return redirect("/panel/login")
+    conn = sqlite3.connect(DB_PATH)
+    fila = conn.execute(
+        "SELECT media_id, mime_type FROM comprobantes WHERE id = ?", (comprobante_id,)
+    ).fetchone()
+    conn.close()
+    if not fila:
+        return "No encontrado", 404
+    media_id, mime_type = fila
+    try:
+        contenido, mime_type_real = obtener_media_de_meta(media_id)
+        return app.response_class(contenido, mimetype=mime_type_real or mime_type)
+    except Exception as e:
+        print("Error al descargar comprobante:", e)
+        return "No se pudo cargar el archivo (puede haber expirado)", 500
+
+
+@app.route("/panel/aprobar", methods=["POST"])
+def panel_aprobar():
+    if not logueado():
+        return redirect("/panel/login")
+    numero = request.form.get("numero")
+    comprobante_id = request.form.get("comprobante_id")
+    if numero and comprobante_id:
+        marcar_comprobante_aprobado(comprobante_id)
+        enviar_manuales_completos(numero)
+    return redirect(f"/panel?numero={numero}")
 
 
 @app.route("/panel/responder", methods=["POST"])
