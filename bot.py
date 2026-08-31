@@ -31,19 +31,18 @@ RESPUESTA_DEFAULT = (
 # =====================================================================
 #  PRODUCTO: Pack de Manuales de Construcción e Instalaciones (8 Libros)
 # =====================================================================
-PRODUCTOS = {
-    "pack_construccion": {
-        "titulo": "Pack Profesional: 8 Manuales de Construcción e Instalaciones",
-        "precio": "$15.000",  # <-- Reemplazá con tu precio real
-        "link_pago": "https://mpago.la/TU-LINK-DE-PAGO-REAL",  # <-- Reemplazá con tu link de Mercado Pago / pasarela
+PRODUCTOS ="kit_maestro": {
+        "titulo": "Kit Maestro de Arquitectura y Construcción",
+        "precio": "$15.000",  # Acá ponés tu precio real
+        "link_pago": "https://mpago.la/TU-LINK-DE-PAGO",  # Acá tu link de pago
+        
+        # ACÁ PEGÁS EL MENSAJE ENTRANTE EXACTO:
         "frases_entrada": [
-            "pack",
-            "manuales",
-            "construccion",
-            "construcción",
-            "instalaciones",
-            "arquitectura",
-            "curso",
+            "hola, quiero mas informacion del kit maestro de la arquitectura y construccion",
+            "kit maestro",
+            "arquitectura y construccion"
+        ],
+        
         ],
         "mensaje_bienvenida": (
             "¡Incluye los 8 manuales fundamentales en PDF:\n"
