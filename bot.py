@@ -14,6 +14,7 @@ PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "tu_token_de_verificacion")
 APP_SECRET = os.getenv("APP_SECRET")  # opcional: App Secret de Meta, para validar firma del webhook
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")  # opcional: respaldo gratuito si Gemini falla
 PANEL_PASSWORD = os.getenv("PANEL_PASSWORD", "cambiar_esta_clave")
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "cambiar_esta_clave_tambien")
 
@@ -234,8 +235,8 @@ def manejar_texto(from_number, msg_body_lower):
 
     if msg_limpio == MENSAJE_UNICO:
         enviar_bienvenida_pack(from_number)
-    elif GEMINI_API_KEY:
-        respuesta = preguntar_a_gemini(msg_limpio)
+    elif GEMINI_API_KEY or GROQ_API_KEY:
+        respuesta = generar_respuesta_ia(msg_limpio)
         enviar_mensaje_texto(from_number, respuesta)
     else:
         enviar_mensaje_texto(
@@ -390,21 +391,67 @@ def obtener_media_de_meta(media_id):
 # =====================================================================
 #  IA de Respaldo (Gemini) — Interactions API
 # =====================================================================
+PROMPT_SISTEMA = (
+    "Sos un asistente de ventas por WhatsApp para un negocio de manuales "
+    "técnicos de construcción y arquitectura. Respondé breve, claro y "
+    "amable en español, orientando siempre a que compren el Kit Maestro "
+    "(escribiendo 'kit maestro')."
+)
+
+
+def generar_respuesta_ia(texto_usuario):
+    """Intenta responder con Gemini (varios modelos) y, si todo falla, con Groq (gratis)."""
+    if GEMINI_API_KEY:
+        respuesta = preguntar_a_gemini(texto_usuario)
+        if respuesta is not None:
+            return respuesta
+
+    if GROQ_API_KEY:
+        respuesta = preguntar_a_groq(texto_usuario)
+        if respuesta is not None:
+            return respuesta
+
+    return "Un encargado te va a responder a la brevedad para ayudarte con tu consulta."
+
+
+def preguntar_a_groq(texto_usuario):
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+    }
+    payload = {
+        "model": "llama-3.3-70b-versatile",
+        "messages": [
+            {"role": "system", "content": PROMPT_SISTEMA},
+            {"role": "user", "content": texto_usuario},
+        ],
+    }
+    try:
+        resp = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=20,
+        )
+        if resp.status_code >= 400:
+            print("Groq devolvió error:", resp.text)
+            return None
+        data = resp.json()
+        return data["choices"][0]["message"]["content"]
+    except Exception as e:
+        print("Error al consultar Groq:", e)
+        return None
+
+
 def preguntar_a_gemini(texto_usuario):
     headers = {
         "Content-Type": "application/json",
         "x-goog-api-key": GEMINI_API_KEY,
     }
-    texto_prompt = (
-        "Sos un asistente de ventas por WhatsApp para un negocio de manuales "
-        "técnicos de construcción y arquitectura. Respondé breve, claro y "
-        "amable en español, orientando siempre a que compren el Kit Maestro "
-        "(escribiendo 'kit maestro'). "
-        f"Mensaje del cliente: {texto_usuario}"
-    )
+    texto_prompt = f"{PROMPT_SISTEMA} Mensaje del cliente: {texto_usuario}"
 
     # Probamos el modelo principal y, si está saturado, modelos de respaldo.
-    modelos_a_probar = [GEMINI_MODEL, "gemini-2.5-flash", "gemini-2.5-flash-lite"]
+    modelos_a_probar = [GEMINI_MODEL, "gemini-3.5-flash", "gemini-3.5-flash-lite"]
     # Evitamos duplicados manteniendo el orden
     modelos_a_probar = list(dict.fromkeys(modelos_a_probar))
 
@@ -430,7 +477,7 @@ def preguntar_a_gemini(texto_usuario):
             except Exception as e:
                 print(f"Error al consultar Gemini ({modelo}, intento {intento+1}):", e)
 
-    return "Un encargado te va a responder a la brevedad para ayudarte con tu consulta."
+    return None  # Gemini falló del todo; generar_respuesta_ia pasará a Groq si está disponible
 
 
 # =====================================================================
