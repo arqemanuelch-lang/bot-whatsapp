@@ -2,6 +2,7 @@ import os
 import hmac
 import hashlib
 import sqlite3
+import unicodedata
 import requests
 from datetime import datetime
 from flask import Flask, request, jsonify, render_template_string, redirect, session
@@ -227,21 +228,42 @@ def receive_message():
 # =====================================================================
 #  Lógica del Bot (Kit Maestro)
 # =====================================================================
+def _normalizar(texto):
+    """Pasa a minúsculas y saca tildes, para que 'información' e 'informacion' matcheen igual."""
+    texto = texto.strip().lower()
+    return "".join(
+        c for c in unicodedata.normalize("NFD", texto) if unicodedata.category(c) != "Mn"
+    )
+
+
+# Palabras o frases que disparan el menú de bienvenida (botones).
+# Alcanza con que el mensaje CONTENGA alguna de estas frases, no hace falta que sea exacto.
+PALABRAS_ACTIVADORAS = [
+    "hola",
+    "holaa",
+    "buenas",
+    "buen dia",
+    "buenos dias",
+    "buenas tardes",
+    "buenas noches",
+    "que tal",
+    "quiero mas informacion",
+    "quiero informacion",
+    "mas informacion",
+    "informacion",
+    "kit maestro",
+]
+
+
 def manejar_texto(from_number, msg_body_lower):
-    msg_limpio = msg_body_lower.strip()
+    msg_normalizado = _normalizar(msg_body_lower)
 
-    # 🎯 Mensaje exacto que activa la presentación del Kit Maestro
-    MENSAJE_UNICO = "kit maestro"
-
-    if msg_limpio == MENSAJE_UNICO:
+    if any(palabra in msg_normalizado for palabra in PALABRAS_ACTIVADORAS):
         enviar_bienvenida_pack(from_number)
-    elif GEMINI_API_KEY or GROQ_API_KEY:
-        respuesta = generar_respuesta_ia(msg_limpio)
-        enviar_mensaje_texto(from_number, respuesta)
     else:
         enviar_mensaje_texto(
             from_number,
-            "No entendí tu mensaje 🤔. Escribí *kit maestro* para ver la información del Kit.",
+            "No entendí tu mensaje 🤔. Escribí *hola* o *kit maestro* para ver la información del Kit.",
         )
 
 
@@ -390,6 +412,8 @@ def obtener_media_de_meta(media_id):
 
 # =====================================================================
 #  IA de Respaldo (Gemini) — Interactions API
+#  (Ya no se usa en el flujo de mensajes de texto; queda disponible por si
+#  en el futuro querés engancharla, por ejemplo, en "hablar_vendedor".)
 # =====================================================================
 PROMPT_SISTEMA = (
     "Sos un asistente de ventas por WhatsApp para un negocio de manuales "
