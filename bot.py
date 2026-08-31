@@ -236,9 +236,15 @@ def manejar_boton(from_number, opcion_id):
         producto = PRODUCTOS["kit_maestro"]
         enviar_mensaje_texto(
             from_number,
-            f"🎉 ¡Excelente decisión! Podés abonar de forma segura en el siguiente link:\n\n"
+            f"🎉 ¡Excelente decisión! Podés abonar por cualquiera de estos medios:\n\n"
+            f"1️⃣ *Pago Online (Tarjeta / Rapipago / Dinero en cuenta):*\n"
             f"🔗 {producto['link_pago']}\n\n"
-            "Una vez realizado el pago, envianos el comprobante por acá y te mandamos los PDFs al instante. 📥"
+            f"2️⃣ *Transferencia Bancaria o Lemon 🍋:*\n"
+            f"👉 *Alias:* `droply.ia`\n"
+            f"👉 *CVU:* `0000168300000023859803`\n"
+            f"👉 *Lemontag:* `$emanuel.cristian`\n"
+            f"👤 *Titular:* Cristian Emanuel Chicchi Verbo\n\n"
+            "📩 *Importante:* Una vez realizado el pago, envianos el comprobante por este medio y te enviamos los 8 manuales al instante."
         )
 
     elif opcion_id == "hablar_vendedor":
