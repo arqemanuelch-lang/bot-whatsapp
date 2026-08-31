@@ -52,6 +52,13 @@ PRODUCTOS = {
         "mensaje_bienvenida": (
             "Es un pack completo con todo lo que necesitás para arrancar tus "
             "proyectos de arquitectura y construcción."
+        "imagenes": [
+            "https://tusitio.com/imagenes/kit-1.jpg",
+            "https://tusitio.com/imagenes/kit-2.jpg",
+],
+        "video":
+        "https://tusitio.com/videos/kit-presentacion.mp4",
+        
         ),
     },
     # "curso_electricidad": {
