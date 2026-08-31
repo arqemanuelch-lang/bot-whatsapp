@@ -22,18 +22,46 @@ GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_M
 # =====================================================================
 #  ACÁ programás vos las respuestas fijas (sin IA)
 # =====================================================================
-PALABRAS_MENU = ["hola", "buenas", "buenos dias", "buenas tardes", "info"]
-
-TEXTO_MENU = "¡Hola! Bienvenido a Droply IA. Elegí una opción:\n1️⃣ Opción 1\n2️⃣ Opción 2"
-
-RESPUESTAS_BOTONES = {
-    "opcion_1": "Elegiste la Opción 1. Acá va la info que quieras dejar programada.",
-    "opcion_2": "Elegiste la Opción 2. Acá va la otra info que quieras dejar programada.",
-}
+PALABRAS_MENU = ["hola", "buenas", "buenos dias", "buenas tardes", "info", "menu"]
 
 RESPUESTA_DEFAULT = (
     "No entendí tu mensaje 🤔. Escribí *hola* para ver el menú de opciones."
 )
+
+# =====================================================================
+#  PRODUCTOS — cada uno con sus propias frases de entrada (del anuncio
+#  de Facebook) para que el bot sepa distinguir a cuál se refiere el
+#  cliente y no se confunda si tenés varios productos.
+#
+#  Para agregar un segundo producto, copiá el bloque "kit_maestro" de
+#  abajo, cambiale la key (ej: "curso_electricidad") y completá sus
+#  propios datos. El bot detecta automáticamente cuál usar según las
+#  palabras que escriba el cliente.
+# =====================================================================
+PRODUCTOS = {
+    "kit_maestro": {
+        "titulo": "Kit Maestro de Arquitectura y Construcción",
+        "precio": "$XX.XXX",                              # <-- completá tu precio real
+        "link_pago": "https://mpago.la/TU-LINK-DEL-KIT",   # <-- completá tu link real
+        "frases_entrada": [
+            "kit maestro",
+            "kit de arquitectura",
+            "arquitectura y construccion",
+            "arquitectura y construcción",
+        ],
+        "mensaje_bienvenida": (
+            "Es un pack completo con todo lo que necesitás para arrancar tus "
+            "proyectos de arquitectura y construcción."
+        ),
+    },
+    # "curso_electricidad": {
+    #     "titulo": "Curso de Electricidad Domiciliaria",
+    #     "precio": "$XX.XXX",
+    #     "link_pago": "https://mpago.la/TU-OTRO-LINK",
+    #     "frases_entrada": ["curso de electricidad", "electricidad domiciliaria"],
+    #     "mensaje_bienvenida": "Aprendé a hacer instalaciones eléctricas seguras desde cero.",
+    # },
+}
 
 
 # =====================================================================
@@ -135,9 +163,17 @@ def receive_message():
             manejar_texto(from_number, msg_body.lower())
 
         elif tipo == "interactive":
-            boton_id = message_data["interactive"]["button_reply"]["id"]
-            guardar_mensaje(from_number, "entrante", f"[Botón elegido] {boton_id}")
-            manejar_boton(from_number, boton_id)
+            interactive_data = message_data["interactive"]
+            if interactive_data.get("type") == "button_reply":
+                opcion_id = interactive_data["button_reply"]["id"]
+            elif interactive_data.get("type") == "list_reply":
+                opcion_id = interactive_data["list_reply"]["id"]
+            else:
+                opcion_id = None
+
+            if opcion_id:
+                guardar_mensaje(from_number, "entrante", f"[Opción elegida] {opcion_id}")
+                manejar_boton(from_number, opcion_id)
 
     except Exception as e:
         print("Error procesando mensaje:", e)
@@ -146,11 +182,24 @@ def receive_message():
 
 
 # =====================================================================
-#  Lógica de respuestas: primero reglas fijas, después IA de respaldo
+#  Lógica de respuestas: primero productos, después menú, después IA
 # =====================================================================
+def detectar_producto(msg_body_lower):
+    """Busca si el mensaje del cliente menciona alguno de los productos."""
+    for prod_id, datos in PRODUCTOS.items():
+        for frase in datos["frases_entrada"]:
+            if frase in msg_body_lower:
+                return prod_id
+    return None
+
+
 def manejar_texto(from_number, msg_body_lower):
-    if any(palabra in msg_body_lower for palabra in PALABRAS_MENU):
-        enviar_menu_botones(from_number)
+    prod_id = detectar_producto(msg_body_lower)
+
+    if prod_id:
+        enviar_secuencia_producto(from_number, prod_id)
+    elif any(palabra in msg_body_lower for palabra in PALABRAS_MENU):
+        enviar_menu_principal(from_number)
     elif GEMINI_API_KEY:
         respuesta = preguntar_a_gemini(msg_body_lower)
         enviar_mensaje_texto(from_number, respuesta)
@@ -158,9 +207,43 @@ def manejar_texto(from_number, msg_body_lower):
         enviar_mensaje_texto(from_number, RESPUESTA_DEFAULT)
 
 
-def manejar_boton(from_number, boton_id):
-    respuesta = RESPUESTAS_BOTONES.get(boton_id, "No reconozco esa opción.")
-    enviar_mensaje_texto(from_number, respuesta)
+def manejar_boton(from_number, opcion_id):
+    if opcion_id == "ver_catalogo":
+        enviar_catalogo(from_number)
+
+    elif opcion_id == "hablar_vendedor":
+        enviar_mensaje_texto(
+            from_number,
+            "¡Perfecto! Un vendedor te va a escribir en breve para ayudarte 🙌",
+        )
+
+    elif opcion_id in PRODUCTOS:
+        enviar_secuencia_producto(from_number, opcion_id)
+
+    elif opcion_id.startswith("comprar_"):
+        prod_id = opcion_id.replace("comprar_", "")
+        producto = PRODUCTOS.get(prod_id)
+        if producto:
+            enviar_mensaje_texto(
+                from_number,
+                f"¡Genial! 🎉 Pagá acá para asegurar tu *{producto['titulo']}*:\n"
+                f"{producto['link_pago']}\n\n"
+                "Cuando completes el pago, mandanos el comprobante por acá y te lo enviamos al toque.",
+            )
+        else:
+            enviar_mensaje_texto(from_number, "No encontré ese producto. Escribí *hola* para ver el menú.")
+
+    elif opcion_id.startswith("info_"):
+        prod_id = opcion_id.replace("info_", "")
+        producto = PRODUCTOS.get(prod_id)
+        if GEMINI_API_KEY and producto:
+            respuesta = preguntar_a_gemini(f"El cliente tiene una duda sobre el {producto['titulo']}")
+            enviar_mensaje_texto(from_number, respuesta)
+        else:
+            enviar_mensaje_texto(from_number, "Contanos tu duda y te respondemos enseguida 🙌")
+
+    else:
+        enviar_mensaje_texto(from_number, "No reconozco esa opción. Escribí *hola* para ver el menú.")
 
 
 # =====================================================================
@@ -245,30 +328,93 @@ def enviar_mensaje_texto(to, texto):
     guardar_mensaje(to, "saliente", texto)
 
 
-def enviar_menu_botones(to):
+def enviar_menu_principal(to):
     url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
     headers = {
         "Authorization": f"Bearer {WHATSAPP_TOKEN}",
         "Content-Type": "application/json",
     }
+    texto_menu = "¡Hola! Bienvenido a Droply IA 🛍️\n¿Qué te gustaría hacer?"
     payload = {
         "messaging_product": "whatsapp",
         "to": to,
         "type": "interactive",
         "interactive": {
             "type": "button",
-            "body": {"text": "¡Hola! Bienvenido a Droply IA. Elegí una opción:"},
+            "body": {"text": texto_menu},
             "action": {
                 "buttons": [
-                    {"type": "reply", "reply": {"id": "opcion_1", "title": "Opción 1"}},
-                    {"type": "reply", "reply": {"id": "opcion_2", "title": "Opción 2"}},
+                    {"type": "reply", "reply": {"id": "ver_catalogo", "title": "🛍️ Ver catálogo"}},
+                    {"type": "reply", "reply": {"id": "hablar_vendedor", "title": "💬 Hablar con vendedor"}},
                 ]
             },
         },
     }
     _post_a_meta(url, headers, payload)
-    # Guardamos el texto real del menú (no un simple aviso) para que se vea bien en el panel
-    guardar_mensaje(to, "saliente", TEXTO_MENU)
+    guardar_mensaje(to, "saliente", texto_menu)
+
+
+def enviar_catalogo(to):
+    url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    filas = [
+        {"id": prod_id, "title": data["titulo"][:24], "description": data["precio"]}
+        for prod_id, data in PRODUCTOS.items()
+    ]
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "header": {"type": "text", "text": "Nuestro catálogo"},
+            "body": {"text": "Elegí un producto para ver el detalle y comprarlo:"},
+            "footer": {"text": "Droply IA"},
+            "action": {
+                "button": "Ver productos",
+                "sections": [{"title": "Productos disponibles", "rows": filas}],
+            },
+        },
+    }
+    _post_a_meta(url, headers, payload)
+    guardar_mensaje(to, "saliente", "[Catálogo enviado]")
+
+
+def enviar_secuencia_producto(to, prod_id):
+    """Manda los 2 mensajes automáticos: agradecimiento + oferta con botón."""
+    producto = PRODUCTOS[prod_id]
+
+    # --- Mensaje 1: agradecimiento ---
+    msg1 = f"¡Hola! 👋 Gracias por tu interés en el *{producto['titulo']}* 🙌\n\n{producto['mensaje_bienvenida']}"
+    enviar_mensaje_texto(to, msg1)
+
+    # --- Mensaje 2: oferta con botón de compra ---
+    url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    texto2 = f"¿Deseás adquirir el pack? 📦 Precio: {producto['precio']}"
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": texto2},
+            "action": {
+                "buttons": [
+                    {"type": "reply", "reply": {"id": f"comprar_{prod_id}", "title": "✅ Sí, quiero comprarlo"}},
+                    {"type": "reply", "reply": {"id": f"info_{prod_id}", "title": "❓ Tengo una duda"}},
+                ]
+            },
+        },
+    }
+    _post_a_meta(url, headers, payload)
+    guardar_mensaje(to, "saliente", texto2)
 
 
 def _post_a_meta(url, headers, payload):
@@ -485,11 +631,6 @@ def panel_responder():
         enviar_mensaje_texto(numero, texto)
 
     return redirect(f"/panel?clave={clave}&numero={numero}")
-
-
-# =====================================================================
-#  Panel viejo (por compatibilidad, ya no se usa)
-# =====================================================================
 
 
 if __name__ == "__main__":
