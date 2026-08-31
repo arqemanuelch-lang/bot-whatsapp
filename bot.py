@@ -28,14 +28,43 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 
 
 # =====================================================================
-#  PRODUCTOS (Kit Maestro)
+#  PRODUCTOS (packs) — agregá acá nuevos bloques y aparecen solos en el menú
 # =====================================================================
 PRODUCTOS = {
     "kit_maestro": {
         "titulo": "Kit Maestro de Arquitectura y Construcción",
+        "descripcion_corta": "8 manuales técnicos en PDF",
         "precio": "$8.000",
         "link_pago": "https://mpago.la/TU-LINK-DE-PAGO",
-    }
+        "manuales": [
+            {"titulo": "Cómo se proyecta una Vivienda", "autor": "J.L. Moia",
+             "link": "https://drive.google.com/file/d/12MHAHdQZ7Bm7RTBTD1SVdd0XxDXNO54L/view?usp=sharing"},
+            {"titulo": "Curso básico de instalaciones eléctricas", "autor": "Calloni Rodrigues",
+             "link": "https://drive.google.com/file/d/1XTeI93qPpw0BT2J0l7qhiY_MJKd1iXHD/view?usp=sharing"},
+            {"titulo": "Instalaciones Eléctricas Monofásicas", "autor": "Ing. César Anibal Rey",
+             "link": "https://drive.google.com/file/d/19TKBsowVtj4Q0w5OSOaZ7AeS7aBEs_Kw/view?usp=sharing"},
+            {"titulo": "Manual para el Técnico Instalador Electricista Domiciliario", "autor": "Levy",
+             "link": "https://drive.google.com/file/d/19TKBsowVtj4Q0w5OSOaZ7AeS7aBEs_Kw/view?usp=sharing"},
+            {"titulo": "Manual Práctico de la Construcción", "autor": "Jaime Nisnovich",
+             "link": "https://drive.google.com/file/d/1kKYvLhGcKLHqmit32kLVuiX3swnBGKGv/view?usp=sharing"},
+            {"titulo": "Manual Práctico de Instalaciones Sanitarias: Tomo 1", "autor": "Nisnovich, Castro, Lázaro",
+             "link": "https://drive.google.com/file/d/1oHuKcqXp2SFBAyYSbmqByJFjyn7i7yuY/view?usp=sharing"},
+            {"titulo": "Manual Práctico de Instalaciones Sanitarias: Tomo 2", "autor": "Nisnovich, Castro, Lázaro",
+             "link": "https://drive.google.com/file/d/1dQQC9-GfUjkS-GTAfzL8x1_G4A15k1GO/view?usp=sharing"},
+            {"titulo": "Manual Práctico para Proyectar Buenas Viviendas", "autor": "Jaime Nisnovich",
+             "link": "https://drive.google.com/file/d/1_YZf_GexbX-nE-PK4fBWlv05Ygu1iVw5/view?usp=sharing"},
+        ],
+    },
+    # Ejemplo de cómo se vería un segundo pack (descomentalo y completalo cuando lo tengas):
+    # "kit_electricidad": {
+    #     "titulo": "Kit de Electricidad Avanzada",
+    #     "descripcion_corta": "5 manuales de instalaciones eléctricas",
+    #     "precio": "$5.000",
+    #     "link_pago": "https://mpago.la/OTRO-LINK",
+    #     "manuales": [
+    #         {"titulo": "...", "autor": "...", "link": "..."},
+    #     ],
+    # },
 }
 
 
@@ -259,44 +288,28 @@ def manejar_texto(from_number, msg_body_lower):
     msg_normalizado = _normalizar(msg_body_lower)
 
     if any(palabra in msg_normalizado for palabra in PALABRAS_ACTIVADORAS):
-        enviar_bienvenida_pack(from_number)
+        enviar_menu_productos(from_number)
     else:
         enviar_mensaje_texto(
             from_number,
-            "No entendí tu mensaje 🤔. Escribí *hola* o *kit maestro* para ver la información del Kit.",
+            "No entendí tu mensaje 🤔. Escribí *hola* para ver nuestros packs disponibles.",
         )
 
 
 def manejar_boton(from_number, opcion_id):
-    if opcion_id == "ver_resena":
-        producto = PRODUCTOS["kit_maestro"]
+    # Los ids vienen con el formato "accion:clave_producto" (ej: "ver_resena:kit_maestro").
+    # "hablar_vendedor" no tiene clave porque no depende de un producto puntual.
+    accion, _, clave = opcion_id.partition(":")
 
-        detalle = (
-            "📖 *Contenido del Kit Maestro (8 Manuales en PDF)*:\n\n"
-            "1️⃣ *Cómo se proyecta una Vivienda* (J.L. Moia)\n"
-            "👉 *[Ver adelanto]*: https://drive.google.com/file/d/12MHAHdQZ7Bm7RTBTD1SVdd0XxDXNO54L/view?usp=sharing\n\n"
-            "2️⃣ *Curso básico de instalaciones eléctricas* (Calloni Rodrigues)\n"
-            "👉 *[Ver adelanto]*: https://drive.google.com/file/d/1XTeI93qPpw0BT2J0l7qhiY_MJKd1iXHD/view?usp=sharing\n\n"
-            "3️⃣ *Instalaciones Eléctricas Monofásicas* (Ing. César Anibal Rey)\n"
-            "👉 *[Ver adelanto]*: https://drive.google.com/file/d/19TKBsowVtj4Q0w5OSOaZ7AeS7aBEs_Kw/view?usp=sharing\n\n"
-            "4️⃣ *Manual para el Técnico Instalador Electricista Domiciliario* (Levy)\n"
-            "👉 *[Ver adelanto]*: https://drive.google.com/file/d/19TKBsowVtj4Q0w5OSOaZ7AeS7aBEs_Kw/view?usp=sharing\n\n"
-            "5️⃣ *Manual Práctico de la Construcción* (Jaime Nisnovich)\n"
-            "👉 *[Ver adelanto]*: https://drive.google.com/file/d/1kKYvLhGcKLHqmit32kLVuiX3swnBGKGv/view?usp=sharing\n\n"
-            "6️⃣ *Manual Práctico de Instalaciones Sanitarias: Tomo 1* (Nisnovich, Castro, Lázaro)\n"
-            "👉 *[Ver adelanto]*: https://drive.google.com/file/d/1oHuKcqXp2SFBAyYSbmqByJFjyn7i7yuY/view?usp=sharing\n\n"
-            "7️⃣ *Manual Práctico de Instalaciones Sanitarias: Tomo 2* (Nisnovich, Castro, Lázaro)\n"
-            "👉 *[Ver adelanto]*: https://drive.google.com/file/d/1dQQC9-GfUjkS-GTAfzL8x1_G4A15k1GO/view?usp=sharing\n\n"
-            "8️⃣ *Manual Práctico para Proyectar Buenas Viviendas* (Jaime Nisnovich)\n"
-            "👉 *[Ver adelanto]*: https://drive.google.com/file/d/1_YZf_GexbX-nE-PK4fBWlv05Ygu1iVw5/view?usp=sharing\n\n"
-            f"💰 *Precio promocional del Kit Completo:* {producto['precio']}"
-        )
+    if accion == "ver_pack" and clave in PRODUCTOS:
+        enviar_ficha_producto(from_number, clave)
 
-        enviar_mensaje_texto(from_number, detalle)
-        enviar_botones_comerciales(from_number)
+    elif accion == "ver_resena" and clave in PRODUCTOS:
+        enviar_mensaje_texto(from_number, _texto_detalle_manuales(clave))
+        enviar_botones_pack(from_number, clave, incluir_ver=False)
 
-    elif opcion_id == "comprar_pack":
-        producto = PRODUCTOS["kit_maestro"]
+    elif accion == "comprar_pack" and clave in PRODUCTOS:
+        producto = PRODUCTOS[clave]
         enviar_mensaje_texto(
             from_number,
             "🎉 ¡Excelente decisión! Podés abonar por cualquiera de estos medios:\n\n"
@@ -308,25 +321,71 @@ def manejar_boton(from_number, opcion_id):
             "👉 *Lemontag:* `$emanuel.cristian`\n"
             "👤 *Titular:* Cristian Emanuel Chicchi Verbo\n\n"
             "📩 *Importante:* Una vez realizado el pago, envianos el comprobante por este medio "
-            "y te enviamos los 8 manuales al instante.",
+            f"y te enviamos los {len(producto['manuales'])} manuales al instante.",
         )
 
-    elif opcion_id == "hablar_vendedor":
+    elif accion == "hablar_vendedor":
         enviar_mensaje_texto(
             from_number,
             "💬 Perfecto. En unos minutos un asesor humano te va a responder por este medio "
             "para ayudarte con tus dudas. ¡Quedate atento!",
         )
     else:
-        enviar_bienvenida_pack(from_number)
+        enviar_menu_productos(from_number)
 
 
-def enviar_bienvenida_pack(to):
+def enviar_menu_productos(to):
+    """Menú principal: una fila por PACK (bloque), no por manual individual.
+    Si agregás un producto nuevo a PRODUCTOS, aparece acá solo."""
+    filas = [
+        {
+            "id": f"ver_pack:{clave}",
+            "title": producto["titulo"][:24],
+            "description": f"{producto['descripcion_corta']} · {producto['precio']}"[:72],
+        }
+        for clave, producto in PRODUCTOS.items()
+    ]
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "header": {"type": "text", "text": "Nuestros packs"},
+            "body": {
+                "text": "¡Hola! 👋 Bienvenido a nuestro espacio de manuales técnicos de "
+                        "construcción y arquitectura. Elegí el pack que te interesa:"
+            },
+            "footer": {"text": "Tocá el botón para ver las opciones"},
+            "action": {
+                "button": "Ver packs",
+                "sections": [{"title": "Packs disponibles", "rows": filas}],
+            },
+        },
+    }
+    _enviar_interactivo(to, payload, "[Menú de packs enviado]")
+
+
+def enviar_ficha_producto(to, clave):
+    """Se muestra cuando el usuario elige un pack de la lista principal."""
+    producto = PRODUCTOS[clave]
     texto = (
-        "¡Hola! 👋 Gracias por tu interés en el *Kit Maestro de Arquitectura y Construcción*. "
-        "Tenemos disponible el pack completo con los 8 manuales técnicos en PDF.\n\n"
+        f"📦 *{producto['titulo']}*\n"
+        f"{producto['descripcion_corta']}\n\n"
+        f"💰 *Precio:* {producto['precio']}\n\n"
         "¿Qué te gustaría hacer?"
     )
+    enviar_botones_pack(to, clave, texto=texto, incluir_ver=True)
+
+
+def enviar_botones_pack(to, clave, texto="¿Cómo querés avanzar?", incluir_ver=False):
+    botones = []
+    if incluir_ver:
+        botones.append({"type": "reply", "reply": {"id": f"ver_resena:{clave}", "title": "📚 Ver qué incluye"}})
+    botones.append({"type": "reply", "reply": {"id": f"comprar_pack:{clave}", "title": "💳 Comprar el Kit"}})
+    botones.append({"type": "reply", "reply": {"id": "hablar_vendedor", "title": "💬 Hablar con asesor"}})
+
     payload = {
         "messaging_product": "whatsapp",
         "to": to,
@@ -334,35 +393,19 @@ def enviar_bienvenida_pack(to):
         "interactive": {
             "type": "button",
             "body": {"text": texto},
-            "action": {
-                "buttons": [
-                    {"type": "reply", "reply": {"id": "comprar_pack", "title": "💳 Comprar el Kit"}},
-                    {"type": "reply", "reply": {"id": "ver_resena", "title": "📚 Ver qué incluye"}},
-                    {"type": "reply", "reply": {"id": "hablar_vendedor", "title": "💬 Hablar con asesor"}},
-                ]
-            },
+            "action": {"buttons": botones},
         },
     }
     _enviar_interactivo(to, payload, texto)
 
 
-def enviar_botones_comerciales(to):
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "type": "interactive",
-        "interactive": {
-            "type": "button",
-            "body": {"text": "¿Cómo querés avanzar?"},
-            "action": {
-                "buttons": [
-                    {"type": "reply", "reply": {"id": "comprar_pack", "title": "💳 Comprar el Kit"}},
-                    {"type": "reply", "reply": {"id": "hablar_vendedor", "title": "💬 Hablar con asesor"}},
-                ]
-            },
-        },
-    }
-    _enviar_interactivo(to, payload, "[Botones de compra enviados]")
+def _texto_detalle_manuales(clave):
+    producto = PRODUCTOS[clave]
+    lineas = [f"📖 *Contenido del {producto['titulo']}*:\n"]
+    for i, manual in enumerate(producto["manuales"], start=1):
+        lineas.append(f"{i}️⃣ *{manual['titulo']}* ({manual['autor']})\n👉 *[Ver adelanto]*: {manual['link']}\n")
+    lineas.append(f"💰 *Precio promocional:* {producto['precio']}")
+    return "\n".join(lineas)
 
 
 def _enviar_interactivo(to, payload, texto_para_guardar):
@@ -375,28 +418,16 @@ def _enviar_interactivo(to, payload, texto_para_guardar):
     guardar_mensaje(to, "saliente", texto_para_guardar)
 
 
-def enviar_manuales_completos(to):
-    detalle = (
-        "✅ *¡Pago confirmado! Acá tenés tus 8 manuales completos:*\n\n"
-        "1️⃣ *Cómo se proyecta una Vivienda* (J.L. Moia)\n"
-        "👉 https://drive.google.com/file/d/12MHAHdQZ7Bm7RTBTD1SVdd0XxDXNO54L/view?usp=sharing\n\n"
-        "2️⃣ *Curso básico de instalaciones eléctricas* (Calloni Rodrigues)\n"
-        "👉 https://drive.google.com/file/d/1XTeI93qPpw0BT2J0l7qhiY_MJKd1iXHD/view?usp=sharing\n\n"
-        "3️⃣ *Instalaciones Eléctricas Monofásicas* (Ing. César Anibal Rey)\n"
-        "👉 https://drive.google.com/file/d/19TKBsowVtj4Q0w5OSOaZ7AeS7aBEs_Kw/view?usp=sharing\n\n"
-        "4️⃣ *Manual para el Técnico Instalador Electricista Domiciliario* (Levy)\n"
-        "👉 https://drive.google.com/file/d/19TKBsowVtj4Q0w5OSOaZ7AeS7aBEs_Kw/view?usp=sharing\n\n"
-        "5️⃣ *Manual Práctico de la Construcción* (Jaime Nisnovich)\n"
-        "👉 https://drive.google.com/file/d/1kKYvLhGcKLHqmit32kLVuiX3swnBGKGv/view?usp=sharing\n\n"
-        "6️⃣ *Manual Práctico de Instalaciones Sanitarias: Tomo 1* (Nisnovich, Castro, Lázaro)\n"
-        "👉 https://drive.google.com/file/d/1oHuKcqXp2SFBAyYSbmqByJFjyn7i7yuY/view?usp=sharing\n\n"
-        "7️⃣ *Manual Práctico de Instalaciones Sanitarias: Tomo 2* (Nisnovich, Castro, Lázaro)\n"
-        "👉 https://drive.google.com/file/d/1dQQC9-GfUjkS-GTAfzL8x1_G4A15k1GO/view?usp=sharing\n\n"
-        "8️⃣ *Manual Práctico para Proyectar Buenas Viviendas* (Jaime Nisnovich)\n"
-        "👉 https://drive.google.com/file/d/1_YZf_GexbX-nE-PK4fBWlv05Ygu1iVw5/view?usp=sharing\n\n"
-        "¡Gracias por tu compra! 🙌"
-    )
-    enviar_mensaje_texto(to, detalle)
+def enviar_manuales_completos(to, clave="kit_maestro"):
+    # TODO: cuando tengas más de un pack, guardá la "clave" del producto comprado
+    # junto con el comprobante en la base, para saber cuál aprobar acá (hoy siempre
+    # asume "kit_maestro" porque es el único que existe).
+    producto = PRODUCTOS[clave]
+    lineas = [f"✅ *¡Pago confirmado! Acá tenés tus {len(producto['manuales'])} manuales completos:*\n"]
+    for i, manual in enumerate(producto["manuales"], start=1):
+        lineas.append(f"{i}️⃣ *{manual['titulo']}* ({manual['autor']})\n👉 {manual['link']}\n")
+    lineas.append("¡Gracias por tu compra! 🙌")
+    enviar_mensaje_texto(to, "\n".join(lineas))
 
 
 def obtener_media_de_meta(media_id):
