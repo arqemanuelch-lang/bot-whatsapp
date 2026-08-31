@@ -334,6 +334,36 @@ def enviar_mensaje_texto(to, texto):
     _post_a_meta(url, headers, payload)
     guardar_mensaje(to, "saliente", texto)
 
+def enviar_imagen(to, url_imagen, caption=""):
+    url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "image",
+        "image": {"link": url_imagen, "caption": caption},
+    }
+    _post_a_meta(url, headers, payload)
+    guardar_mensaje(to, "saliente", "[Imagen]")
+
+
+def enviar_video(to, url_video, caption=""):
+    url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "video",
+        "video": {"link": url_video, "caption": caption},
+    }
+    _post_a_meta(url, headers, payload)
+    guardar_mensaje(to, "saliente", "[Video]")
 
 def enviar_menu_principal(to):
     url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
@@ -397,6 +427,12 @@ def enviar_secuencia_producto(to, prod_id):
     # --- Mensaje 1: agradecimiento ---
     msg1 = f"¡Hola! 👋 Gracias por tu interés en el *{producto['titulo']}* 🙌\n\n{producto['mensaje_bienvenida']}"
     enviar_mensaje_texto(to, msg1)
+
+    for url_img in producto.get("imagenes", []):
+        enviar_imagen(to, url_img)
+
+    if producto.get("video"):
+        enviar_video(to, producto["video"])
 
     # --- Mensaje 2: oferta con botón de compra ---
     url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
