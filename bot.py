@@ -203,17 +203,35 @@ def manejar_boton(from_number, opcion_id):
         
         # ACÁ VA EL TEXTO DETALLADO QUE PEDISTE
         detalle = (
-            "📖 *Contenido del Kit Maestro (8 Manuales en PDF)*:\n\n"
+           "📖 *Contenido del Kit Maestro (8 Manuales en PDF)*:\n\n"
+            
             "1️⃣ *Cómo se proyecta una Vivienda* (J.L. Moia)\n"
+            "🔗 Ver adelanto: https://link-del-libro-1.com\n\n"
+            
             "2️⃣ *Curso básico de instalaciones eléctricas* (Calloni Rodrigues)\n"
+            "🔗 Ver adelanto: https://link-del-libro-2.com\n\n"
+            
             "3️⃣ *Instalaciones Eléctricas Monofásicas* (Ing. César Anibal Rey)\n"
+            "🔗 Ver adelanto: https://link-del-libro-3.com\n\n"
+            
             "4️⃣ *Manual para el Técnico Instalador Electricista Domiciliario* (Levy)\n"
+            "🔗 Ver adelanto: https://link-del-libro-4.com\n\n"
+            
             "5️⃣ *Manual Práctico de la Construcción* (Jaime Nisnovich)\n"
-            "6️⃣ *Manual Práctico de Instalaciones Sanitarias: Tomo 1 - Agua fría y caliente* (Jaime Nisnovich)\n"
-            "7️⃣ *Manual Práctico de Instalaciones Sanitarias: Tomo 2 - Cloacal y pluvial* (Jaime Nisnovich)\n"
-            "8️⃣ *Manual Práctico para Proyectar Buenas Viviendas* (Jaime Nisnovich)\n\n"
-            f"💰 *Precio promocional:* {producto['precio']}"
+            "🔗 Ver adelanto: https://link-del-libro-5.com\n\n"
+            
+            "6️⃣ *Manual Práctico de Instalaciones Sanitarias: Tomo 1 - Agua fría y caliente* (Jaime Nisnovich, con Víctor M. Castro y Pedro E. Lázaro)\n"
+            "🔗 Ver adelanto: https://link-del-libro-6.com\n\n"
+            
+            "7️⃣ *Manual Práctico de Instalaciones Sanitarias: Tomo 2 - Cloacal y pluvial* (Jaime Nisnovich, con Víctor M. Castro y Pedro E. Lázaro)\n"
+            "🔗 Ver adelanto: https://link-del-libro-7.com\n\n"
+            
+            "8️⃣ *Manual Práctico para Proyectar Buenas Viviendas* (Jaime Nisnovich)\n"
+            "🔗 Ver adelanto:https://lix.li/Xmpai\n"
+            
+            f"💰 *Precio promocional del Kit Completo:* {producto['precio']}"
         )
+        
         
         enviar_mensaje_texto(from_number, detalle)
         enviar_botones_comerciales(from_number)
