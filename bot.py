@@ -25,25 +25,25 @@ GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_M
 PALABRAS_MENU = ["hola", "buenas", "buenos dias", "buenas tardes", "info", "menu"]
 
 RESPUESTA_DEFAULT = (
-    "No entendí tu mensaje 🤔. Escribí *hola* para ver la información del Pack de Manuales."
+    "No entendí tu mensaje 🤔. Escribí *hola* para ver la información del Kit."
 )
 
 # =====================================================================
-#  PRODUCTO: Pack de Manuales de Construcción e Instalaciones (8 Libros)
+#  PRODUCTOS (Kit Maestro)
 # =====================================================================
-PRODUCTOS ="kit_maestro": {
+PRODUCTOS = {
+    "kit_maestro": {
         "titulo": "Kit Maestro de Arquitectura y Construcción",
         "precio": "$15.000",  # Acá ponés tu precio real
         "link_pago": "https://mpago.la/TU-LINK-DE-PAGO",  # Acá tu link de pago
         
-        # ACÁ PEGÁS EL MENSAJE ENTRANTE EXACTO:
+        # ACÁ QUEDA FIJADO EL MENSAJE ENTRANTE EXACTO DEL ANUNCIO:
         "frases_entrada": [
             "hola, quiero mas informacion del kit maestro de la arquitectura y construccion",
             "kit maestro",
             "arquitectura y construccion"
         ],
         
-        ],
         "mensaje_bienvenida": (
             "¡Incluye los 8 manuales fundamentales en PDF:\n"
             "1. Cómo se proyecta una Vivienda (J.L. Moia)\n"
@@ -56,10 +56,9 @@ PRODUCTOS ="kit_maestro": {
             "8. Manual Práctico para Proyectar Buenas Viviendas"
         ),
         "imagenes": [
-            # Podés poner links a imágenes de tapa o folletos del pack
             "https://tusitio.com/imagenes/pack-portada.jpg"
         ],
-        "video": "",  # Opcional si tenés video de presentación
+        "video": "",
     }
 }
 
@@ -183,13 +182,14 @@ def receive_message():
     return jsonify({"status": "success"}), 200
 
 # =====================================================================
-#  Lógica del Bot orientada a Conversión / Venta del Pack
+#  Lógica del Bot (Kit Maestro)
 # =====================================================================
 def manejar_texto(from_number, msg_body_lower):
-    # Si escriben cualquier saludo o frase del anuncio, disparamos la bienvenida comercial del pack directamente
-    if any(palabra in msg_body_lower for palabra in PALABRAS_MENU) or any(
-        frase in msg_body_lower for frase in PRODUCTOS["pack_construccion"]["frases_entrada"]
-    ):
+    # Verificamos si mandó el saludo o la frase exacta del Kit Maestro
+    coincide_frase = any(frase in msg_body_lower for frase in PRODUCTOS["kit_maestro"]["frases_entrada"])
+    es_saludo = any(palabra in msg_body_lower for palabra in PALABRAS_MENU)
+
+    if coincide_frase or es_saludo:
         enviar_bienvenida_pack(from_number)
     elif GEMINI_API_KEY:
         respuesta = preguntar_a_gemini(msg_body_lower)
@@ -199,24 +199,22 @@ def manejar_texto(from_number, msg_body_lower):
 
 def manejar_boton(from_number, opcion_id):
     if opcion_id == "ver_resena":
-        # Envía el detalle completo de los libros
-        producto = PRODUCTOS["pack_construccion"]
+        producto = PRODUCTOS["kit_maestro"]
         detalle = (
-            "📖 *Detalle del Pack Completo:*\n\n"
+            "📖 *Detalle del Kit Maestro:*\n\n"
             f"{producto['mensaje_bienvenida']}\n\n"
             f"💰 *Precio promocional:* {producto['precio']}"
         )
         enviar_mensaje_texto(from_number, detalle)
-        # Re-enviamos los botones para que pueda comprar o hablar con asesor
         enviar_botones_comerciales(from_number)
 
     elif opcion_id == "comprar_pack":
-        producto = PRODUCTOS["pack_construccion"]
+        producto = PRODUCTOS["kit_maestro"]
         enviar_mensaje_texto(
             from_number,
             f"🎉 ¡Excelente decisión! Podés abonar de forma segura en el siguiente link:\n\n"
             f"🔗 {producto['link_pago']}\n\n"
-            "Una vez realizado el pago, envianos el comprobante por acá y te mandamos los 8 PDFs al instante de manera automática o por este medio. 📥"
+            "Una vez realizado el pago, envianos el comprobante por acá y te mandamos los 8 PDFs al instante. 📥"
         )
 
     elif opcion_id == "hablar_vendedor":
@@ -234,8 +232,8 @@ def enviar_bienvenida_pack(to):
         "Content-Type": "application/json",
     }
     texto = (
-        "¡Hola! 👋 Gracias por tu interés en los manuales de construcción e instalaciones. "
-        "Tenemos disponible el **Pack Completo con los 8 manuales técnicos en PDF** para profesionales y estudiantes.\n\n"
+        "¡Hola! 👋 Gracias por tu interés en el **Kit Maestro de Arquitectura y Construcción**. "
+        "Tenemos disponible el pack completo con los 8 manuales técnicos en PDF.\n\n"
         "¿Qué te gustaría hacer?"
     )
     payload = {
@@ -247,7 +245,7 @@ def enviar_bienvenida_pack(to):
             "body": {"text": texto},
             "action": {
                 "buttons": [
-                    {"type": "reply", "reply": {"id": "comprar_pack", "title": "💳 Comprar el Pack"}},
+                    {"type": "reply", "reply": {"id": "comprar_pack", "title": "💳 Comprar el Kit"}},
                     {"type": "reply", "reply": {"id": "ver_resena", "title": "📖 Ver qué incluye"}},
                     {"type": "reply", "reply": {"id": "hablar_vendedor", "title": "💬 Hablar con asesor"}},
                 ]
@@ -273,7 +271,7 @@ def enviar_botones_comerciales(to):
             "body": {"text": texto},
             "action": {
                 "buttons": [
-                    {"type": "reply", "reply": {"id": "comprar_pack", "title": "💳 Comprar el Pack"}},
+                    {"type": "reply", "reply": {"id": "comprar_pack", "title": "💳 Comprar el Kit"}},
                     {"type": "reply", "reply": {"id": "hablar_vendedor", "title": "💬 Hablar con asesor"}},
                 ]
             },
@@ -297,7 +295,7 @@ def preguntar_a_gemini(texto_usuario):
                         "text": (
                             "Sos un asistente de ventas por WhatsApp para un negocio de manuales "
                             "técnicos de construcción y arquitectura. Respondé breve, claro y "
-                            "amable en español, orientando siempre a que compren el pack completo. "
+                            "amable en español, orientando siempre a que compren el Kit Maestro. "
                             f"Mensaje del cliente: {texto_usuario}"
                         )
                     }
@@ -321,7 +319,7 @@ def preguntar_a_gemini(texto_usuario):
     return "Perdón, tuve un problema. Un asesor te contestará en breve."
 
 # =====================================================================
-#  Funciones de Envío WhatsApp & Panel Web (Sin cambios estructurales)
+#  Funciones de Envío WhatsApp & Panel Web
 # =====================================================================
 def enviar_mensaje_texto(to, texto):
     url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
@@ -344,9 +342,8 @@ def _post_a_meta(url, headers, payload):
     except requests.exceptions.RequestException as e:
         print("Error al llamar a la API de Meta:", e)
 
-# HTML del Panel para control humano (mantiene la misma interfaz que ya tenías)
-LOGIN_HTML = """<!doctype html>...""" # (Se mantiene igual que en tu script original)
-PANEL_HTML = """<!doctype html>..."""  # (Se mantiene igual que en tu script original)
+LOGIN_HTML = """<!doctype html>..."""
+PANEL_HTML = """<!doctype html>..."""
 
 def logueado():
     return session.get("panel_ok") is True
