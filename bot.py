@@ -395,33 +395,42 @@ def preguntar_a_gemini(texto_usuario):
         "Content-Type": "application/json",
         "x-goog-api-key": GEMINI_API_KEY,
     }
-    payload = {
-        "model": GEMINI_MODEL,
-        "store": False,
-        "input": (
-            "Sos un asistente de ventas por WhatsApp para un negocio de manuales "
-            "técnicos de construcción y arquitectura. Respondé breve, claro y "
-            "amable en español, orientando siempre a que compren el Kit Maestro "
-            "(escribiendo 'kit maestro'). "
-            f"Mensaje del cliente: {texto_usuario}"
-        ),
-    }
-    try:
-        resp = requests.post(GEMINI_URL, headers=headers, json=payload, timeout=30)
-        if resp.status_code >= 400:
-            print("Gemini devolvió error, cuerpo de la respuesta:", resp.text)
-            return "Un encargado te va a responder a la brevedad para ayudarte con tu consulta."
+    texto_prompt = (
+        "Sos un asistente de ventas por WhatsApp para un negocio de manuales "
+        "técnicos de construcción y arquitectura. Respondé breve, claro y "
+        "amable en español, orientando siempre a que compren el Kit Maestro "
+        "(escribiendo 'kit maestro'). "
+        f"Mensaje del cliente: {texto_usuario}"
+    )
 
-        data = resp.json()
-        for step in data.get("steps", []):
-            if step.get("type") == "model_output":
-                for bloque in step.get("content", []):
-                    if bloque.get("type") == "text":
-                        return bloque["text"]
-        return "Un encargado te va a responder a la brevedad para ayudarte con tu consulta."
-    except Exception as e:
-        print("Error al consultar Gemini:", e)
-        return "Perdón, tuve un problema. Un asesor te contestará en breve."
+    # Probamos el modelo principal y, si está saturado, modelos de respaldo.
+    modelos_a_probar = [GEMINI_MODEL, "gemini-2.5-flash", "gemini-2.5-flash-lite"]
+    # Evitamos duplicados manteniendo el orden
+    modelos_a_probar = list(dict.fromkeys(modelos_a_probar))
+
+    for modelo in modelos_a_probar:
+        payload = {"model": modelo, "store": False, "input": texto_prompt}
+        for intento in range(2):  # hasta 2 intentos por modelo
+            try:
+                resp = requests.post(GEMINI_URL, headers=headers, json=payload, timeout=20)
+                if resp.status_code >= 400:
+                    print(f"Gemini ({modelo}, intento {intento+1}) devolvió error:", resp.text)
+                    cuerpo = resp.text.lower()
+                    if "high demand" in cuerpo or "unavailable" in cuerpo or resp.status_code in (429, 503):
+                        continue  # reintenta o pasa al siguiente modelo
+                    break  # error distinto (ej. modelo no existe): probamos el siguiente modelo directamente
+
+                data = resp.json()
+                for step in data.get("steps", []):
+                    if step.get("type") == "model_output":
+                        for bloque in step.get("content", []):
+                            if bloque.get("type") == "text":
+                                return bloque["text"]
+                break  # respondió 200 pero sin texto útil: probamos el siguiente modelo
+            except Exception as e:
+                print(f"Error al consultar Gemini ({modelo}, intento {intento+1}):", e)
+
+    return "Un encargado te va a responder a la brevedad para ayudarte con tu consulta."
 
 
 # =====================================================================
