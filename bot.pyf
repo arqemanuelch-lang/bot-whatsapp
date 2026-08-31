@@ -1,8 +1,10 @@
 import os
+import hmac
+import hashlib
 import sqlite3
 import requests
 from datetime import datetime
-from flask import Flask, request, jsonify, render_template_string, redirect
+from flask import Flask, request, jsonify, render_template_string, redirect, session
 
 app = Flask(__name__)
 
@@ -10,13 +12,18 @@ app = Flask(__name__)
 WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "tu_token_de_verificacion")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")            # opcional: si no está, no usa IA
+APP_SECRET = os.getenv("APP_SECRET")                      # <-- App Secret de Meta, para validar firma del webhook
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")               # opcional: si no está, no usa IA
 PANEL_PASSWORD = os.getenv("PANEL_PASSWORD", "cambiar_esta_clave")
+
+# Clave secreta para firmar las cookies de sesión del panel.
+# Configurá FLASK_SECRET_KEY en Render con un valor random y largo.
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "cambiar_esta_clave_tambien")
 
 DB_PATH = "mensajes.db"
 
 # GEMINI_MODEL: podés cambiarlo por variable de entorno si querés probar otros modelos
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
 # =====================================================================
@@ -52,14 +59,12 @@ PRODUCTOS = {
         "mensaje_bienvenida": (
             "Es un pack completo con todo lo que necesitás para arrancar tus "
             "proyectos de arquitectura y construcción."
+        ),
         "imagenes": [
             "https://tusitio.com/imagenes/kit-1.jpg",
             "https://tusitio.com/imagenes/kit-2.jpg",
-],
-        "video":
-        "https://tusitio.com/videos/kit-presentacion.mp4",
-        
-        ),
+        ],
+        "video": "https://tusitio.com/videos/kit-presentacion.mp4",
     },
     # "curso_electricidad": {
     #     "titulo": "Curso de Electricidad Domiciliaria",
@@ -67,6 +72,8 @@ PRODUCTOS = {
     #     "link_pago": "https://mpago.la/TU-OTRO-LINK",
     #     "frases_entrada": ["curso de electricidad", "electricidad domiciliaria"],
     #     "mensaje_bienvenida": "Aprendé a hacer instalaciones eléctricas seguras desde cero.",
+    #     "imagenes": [],
+    #     "video": None,
     # },
 }
 
@@ -140,11 +147,40 @@ def verify_webhook():
     return "Verification failed", 403
 
 
+def verificar_firma_meta(request_data_raw, firma_header):
+    """
+    Valida que el request realmente venga de Meta, comparando la firma
+    HMAC-SHA256 que manda en el header X-Hub-Signature-256 contra una
+    firma calculada acá con tu APP_SECRET.
+
+    Si no configuraste APP_SECRET, no valida (por compatibilidad), pero
+    se imprime un aviso porque es un riesgo de seguridad dejarlo así.
+    """
+    if not APP_SECRET:
+        print("⚠️  APP_SECRET no configurado: el webhook NO está validando firmas.")
+        return True
+
+    if not firma_header or not firma_header.startswith("sha256="):
+        return False
+
+    firma_recibida = firma_header.split("sha256=", 1)[1]
+    firma_calculada = hmac.new(
+        APP_SECRET.encode("utf-8"), request_data_raw, hashlib.sha256
+    ).hexdigest()
+
+    return hmac.compare_digest(firma_recibida, firma_calculada)
+
+
 # =====================================================================
 #  Webhook: recepción de mensajes (de cualquier número del mundo)
 # =====================================================================
 @app.route("/webhook", methods=["POST"])
 def receive_message():
+    firma_header = request.headers.get("X-Hub-Signature-256")
+    if not verificar_firma_meta(request.get_data(), firma_header):
+        print("❌ Firma de webhook inválida, se descarta el request.")
+        return "Invalid signature", 403
+
     data = request.json
     print("Webhook recibido:", data)
 
@@ -334,6 +370,7 @@ def enviar_mensaje_texto(to, texto):
     _post_a_meta(url, headers, payload)
     guardar_mensaje(to, "saliente", texto)
 
+
 def enviar_imagen(to, url_imagen, caption=""):
     url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
     headers = {
@@ -364,6 +401,7 @@ def enviar_video(to, url_video, caption=""):
     }
     _post_a_meta(url, headers, payload)
     guardar_mensaje(to, "saliente", "[Video]")
+
 
 def enviar_menu_principal(to):
     url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
@@ -421,7 +459,7 @@ def enviar_catalogo(to):
 
 
 def enviar_secuencia_producto(to, prod_id):
-    """Manda los 2 mensajes automáticos: agradecimiento + oferta con botón."""
+    """Manda los mensajes automáticos: agradecimiento + fotos/video + oferta con botón."""
     producto = PRODUCTOS[prod_id]
 
     # --- Mensaje 1: agradecimiento ---
@@ -470,9 +508,54 @@ def _post_a_meta(url, headers, payload):
 
 
 # =====================================================================
-#  Panel web estilo WhatsApp — con opción de responder manualmente
-#  Se abre en: https://TU-BOT.onrender.com/panel?clave=TU_CLAVE
+#  Panel web estilo WhatsApp — login con sesión (ya no clave en la URL)
+#  Se abre en: https://TU-BOT.onrender.com/panel/login
 # =====================================================================
+LOGIN_HTML = """
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Droply IA — Ingresar</title>
+  <style>
+    body {
+      font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+      background: #f0f2f5; height: 100vh; margin: 0;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .box {
+      background: #fff; padding: 32px; border-radius: 12px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.1); width: 100%; max-width: 320px;
+    }
+    .box h1 { font-size: 18px; margin: 0 0 20px; color: #111b21; }
+    .box input {
+      width: 100%; padding: 10px 12px; margin-bottom: 14px;
+      border: 1px solid #d1d7db; border-radius: 8px; font-size: 14.5px;
+      box-sizing: border-box;
+    }
+    .box button {
+      width: 100%; background: #075E54; color: #fff; border: none;
+      border-radius: 8px; padding: 12px; font-size: 14.5px; font-weight: 600;
+      cursor: pointer;
+    }
+    .box button:hover { background: #064c44; }
+    .error { color: #d32f2f; font-size: 13px; margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>📋 Panel Droply IA</h1>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <form method="POST" action="/panel/login">
+      <input type="password" name="clave" placeholder="Clave del panel" required autofocus>
+      <button type="submit">Ingresar</button>
+    </form>
+  </div>
+</body>
+</html>
+"""
+
 PANEL_HTML = """
 <!doctype html>
 <html lang="es">
@@ -494,7 +577,9 @@ PANEL_HTML = """
     .sidebar-header {
       background: #075E54; color: white; padding: 16px;
       font-size: 17px; font-weight: 600;
+      display: flex; justify-content: space-between; align-items: center;
     }
+    .sidebar-header a { color: white; font-size: 12px; text-decoration: underline; }
     .contact-list { overflow-y: auto; flex: 1; }
     .contact {
       display: flex; align-items: center; gap: 12px;
@@ -560,11 +645,14 @@ PANEL_HTML = """
 <body>
 
   <div class="sidebar">
-    <div class="sidebar-header">📋 Droply IA</div>
+    <div class="sidebar-header">
+      <span>📋 Droply IA</span>
+      <a href="/panel/logout">Salir</a>
+    </div>
     <div class="contact-list">
       {% for numero, info in conversaciones.items() %}
         {% set ultimo = info.mensajes[-1] %}
-        <a class="contact {{ 'active' if numero == numero_activo else '' }}" href="?clave={{ clave }}&numero={{ numero }}">
+        <a class="contact {{ 'active' if numero == numero_activo else '' }}" href="?numero={{ numero }}">
           <div class="avatar">{{ info.inicial }}</div>
           <div class="contact-info">
             <div class="contact-name">{{ info.nombre }}</div>
@@ -598,7 +686,6 @@ PANEL_HTML = """
         {% endfor %}
       </div>
       <form class="reply-bar" method="POST" action="/panel/responder">
-        <input type="hidden" name="clave" value="{{ clave }}">
         <input type="hidden" name="numero" value="{{ numero_activo }}">
         <input type="text" name="texto" placeholder="Escribí un mensaje" required autofocus>
         <button type="submit">Enviar</button>
@@ -623,11 +710,32 @@ PANEL_HTML = """
 """
 
 
+def logueado():
+    return session.get("panel_ok") is True
+
+
+@app.route("/panel/login", methods=["GET", "POST"])
+def panel_login():
+    error = None
+    if request.method == "POST":
+        clave = request.form.get("clave", "")
+        if hmac.compare_digest(clave, PANEL_PASSWORD):
+            session["panel_ok"] = True
+            return redirect("/panel")
+        error = "Clave incorrecta."
+    return render_template_string(LOGIN_HTML, error=error)
+
+
+@app.route("/panel/logout")
+def panel_logout():
+    session.pop("panel_ok", None)
+    return redirect("/panel/login")
+
+
 @app.route("/panel")
 def panel():
-    clave = request.args.get("clave")
-    if clave != PANEL_PASSWORD:
-        return "Acceso denegado. Agregá ?clave=TU_CLAVE al final de la URL.", 403
+    if not logueado():
+        return redirect("/panel/login")
 
     conn = sqlite3.connect(DB_PATH)
     filas = conn.execute(
@@ -657,15 +765,13 @@ def panel():
         PANEL_HTML,
         conversaciones=conversaciones,
         numero_activo=numero_activo,
-        clave=clave,
     )
 
 
 @app.route("/panel/responder", methods=["POST"])
 def panel_responder():
-    clave = request.form.get("clave")
-    if clave != PANEL_PASSWORD:
-        return "Acceso denegado.", 403
+    if not logueado():
+        return redirect("/panel/login")
 
     numero = request.form.get("numero")
     texto = request.form.get("texto", "").strip()
@@ -673,7 +779,7 @@ def panel_responder():
     if numero and texto:
         enviar_mensaje_texto(numero, texto)
 
-    return redirect(f"/panel?clave={clave}&numero={numero}")
+    return redirect(f"/panel?numero={numero}")
 
 
 if __name__ == "__main__":
