@@ -34,7 +34,7 @@ RESPUESTA_DEFAULT = (
 PRODUCTOS = {
     "kit_maestro": {
         "titulo": "Kit Maestro de Arquitectura y Construcción",
-        "precio": "$15.000",  # Acá ponés tu precio real
+        "precio": "$8.000",  # Acá ponés tu precio real
         "link_pago": "https://mpago.la/TU-LINK-DE-PAGO",  # Acá tu link de pago
         
         # ACÁ QUEDA FIJADO EL MENSAJE ENTRANTE EXACTO DEL ANUNCIO:
