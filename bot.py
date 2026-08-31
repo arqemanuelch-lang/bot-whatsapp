@@ -205,21 +205,14 @@ def manejar_boton(from_number, opcion_id):
         detalle = (
             "📖 *Contenido del Kit Maestro (8 Manuales en PDF)*:\n\n"
             
-            "🏠 *1. Área Arquitectura y Diseño*\n"
-            "• *Cómo se proyecta una Vivienda* (J.L. Moia)\n"
-            "• *Manual Práctico para Proyectar Buenas Viviendas* (Catálogo Nisno con más de 2.000 esquemas)\n\n"
-            
-            "⚡ *2. Área Instalaciones Eléctricas*\n"
-            "• *Curso básico de instalaciones eléctricas* (Calloni Rodrigues)\n"
-            "• *Instalaciones Eléctricas Monofásicas*\n"
-            "• *Manual para el Técnico Instalador Electricista Domiciliario* (Levy)\n\n"
-            
-            "🧱 *3. Área Construcción*\n"
-            "• *Manual Práctico de Construcción*\n\n"
-            
-            "🚰 *4. Área Instalaciones Sanitarias*\n"
-            "• *Manual Práctico de Instalaciones Sanitarias (Tomo 1)* - Agua fría y caliente\n"
-            "• *Manual Práctico de Instalaciones Sanitarias (Tomo 2)* - Desagües y pluviales\n\n"
+            "1️⃣ *Cómo se proyecta una Vivienda* (J.L. Moia)\n"
+            "2️⃣ *Curso básico de instalaciones eléctricas* (Calloni Rodrigues)\n"
+            "3️⃣ *Instalaciones Eléctricas Monofásicas*\n"
+            "4️⃣ *Manual para el Técnico Instalador Electricista Domiciliario* (Levy)\n"
+            "5️⃣ *Manual Práctico de Construcción*\n"
+            "6️⃣ *Manual Práctico de Instalaciones Sanitarias (Tomo 1)* - Agua fría y caliente\n"
+            "7️⃣ *Manual Práctico de Instalaciones Sanitarias (Tomo 2)* - Desagües y pluviales\n"
+            "8️⃣ *Manual Práctico para Proyectar Buenas Viviendas* (Catálogo Nisno con más de 2.000 esquemas)\n\n"
             f"💰 *Precio promocional:* {producto['precio']}"
         )
         
