@@ -34,10 +34,9 @@ RESPUESTA_DEFAULT = (
 PRODUCTOS = {
     "kit_maestro": {
         "titulo": "Kit Maestro de Arquitectura y Construcción",
-        "precio": "$8.000",  # Acá ponés tu precio real
-        "link_pago": "https://mpago.la/TU-LINK-DE-PAGO",  # Acá tu link de pago
+        "precio": "$8.000",
+        "link_pago": "https://mpago.la/TU-LINK-DE-PAGO",
         
-        # ACÁ QUEDA FIJADO EL MENSAJE ENTRANTE EXACTO DEL ANUNCIO:
         "frases_entrada": [
             "hola, quiero mas informacion del kit maestro de la arquitectura y construccion",
             "kit maestro",
@@ -185,7 +184,6 @@ def receive_message():
 #  Lógica del Bot (Kit Maestro)
 # =====================================================================
 def manejar_texto(from_number, msg_body_lower):
-    # Verificamos si mandó el saludo o la frase exacta del Kit Maestro
     coincide_frase = any(frase in msg_body_lower for frase in PRODUCTOS["kit_maestro"]["frases_entrada"])
     es_saludo = any(palabra in msg_body_lower for palabra in PALABRAS_MENU)
 
@@ -198,11 +196,6 @@ def manejar_texto(from_number, msg_body_lower):
         enviar_bienvenida_pack(from_number)
 
 def manejar_boton(from_number, opcion_id):
-    if opcion_id == "ver_resena":
-        producto = PRODUCTOS["kit_maestro"]
-        
-        # ACÁ VA EL TEXTO DETALLADO QUE PEDISTE
-        detalle = (def manejar_boton(from_number, opcion_id):
     if opcion_id == "ver_resena":
         producto = PRODUCTOS["kit_maestro"]
         
@@ -254,27 +247,6 @@ def manejar_boton(from_number, opcion_id):
             "💬 Perfecto. En unos minutos un asesor humano te va a responder por este medio para ayudarte con tus dudas. ¡Quedate atento!"
         )
     else:
-        enviar_bienvenida_pack(from_number)  )
-        
-        
-        enviar_mensaje_texto(from_number, detalle)
-        enviar_botones_comerciales(from_number)
-
-    elif opcion_id == "comprar_pack":
-        producto = PRODUCTOS["kit_maestro"]
-        enviar_mensaje_texto(
-            from_number,
-            f"🎉 ¡Excelente decisión! Podés abonar de forma segura en el siguiente link:\n\n"
-            f"🔗 {producto['link_pago']}\n\n"
-            "Una vez realizado el pago, envianos el comprobante por acá y te mandamos los PDFs al instante. 📥"
-        )
-
-    elif opcion_id == "hablar_vendedor":
-        enviar_mensaje_texto(
-            from_number,
-            "💬 Perfecto. En unos minutos un asesor humano te va a responder por este medio para ayudarte con tus dudas. ¡Quedate atento!"
-        )
-    else:
         enviar_bienvenida_pack(from_number)
 
 def enviar_bienvenida_pack(to):
@@ -298,7 +270,7 @@ def enviar_bienvenida_pack(to):
             "action": {
                 "buttons": [
                     {"type": "reply", "reply": {"id": "comprar_pack", "title": "💳 Comprar el Kit"}},
-                    {"type": "reply", "reply": {"id": "ver_resena", "title": "📖 Ver qué incluye"}},
+                    {"type": "reply", "reply": {"id": "ver_resena", "title": "📚 Ver qué incluye"}},
                     {"type": "reply", "reply": {"id": "hablar_vendedor", "title": "💬 Hablar con asesor"}},
                 ]
             },
