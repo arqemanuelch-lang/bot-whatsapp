@@ -200,11 +200,35 @@ def manejar_texto(from_number, msg_body_lower):
 def manejar_boton(from_number, opcion_id):
     if opcion_id == "ver_resena":
         producto = PRODUCTOS["kit_maestro"]
+        
+        # ACÁ VA EL TEXTO DETALLADO QUE PEDISTE
         detalle = (
             "📖 *Detalle del Kit Maestro:*\n\n"
-            f"{producto['mensaje_bienvenida']}\n\n"
+            "¡Incluye los manuales fundamentales en PDF:\n\n"
+            "1. **Manual Práctico para Proyectar Buenas Viviendas (Naranja):**\n"
+            "   • **Enfoque:** Diseño Arquitectónico y Economía.\n"
+            "   • **Detalle:** Te enseña a **diseñar casas y departamentos cómodos** y reducir costos desde el plano. Incluye el **Catálogo Nisno** con más de **2.000 esquemas** de plantas y la organización eficiente de franjas de locales.\n\n"
+            "2. **Manual Práctico de Construcción:**\n"
+            "   • **Enfoque:** Ejecución y Presupuesto de Obra.\n"
+            "   • **Detalle:** Guía de obra indispensable para el auxiliar y técnico. Cubre desde el **Replanteo y Cimientos** hasta Tabiques, Techos, Revoques y la **determinación precisa de la cantidad y el costo de materiales**.\n\n"
+            "3. **Instalaciones Sanitarias (Tomo 1 - Agua Fría y Caliente):**\n"
+            "   • **Enfoque:** Sistemas Hidrosanitarios.\n"
+            "   • **Detalle:** Aprende los **fenómenos físicos, códigos y normas**. Guía completa sobre cañerías, bombas, tanques y el **dimensionamiento hidráulico** de las instalaciones de agua potable.\n\n"
+            "4. **Instalaciones Sanitarias (Tomo 2 - Desagües y Pluviales):**\n"
+            "   • **Enfoque:** Desagües Sanitarios.\n"
+            "   • **Detalle:** Cómo proyectar y realizar sistemas de **Cloacas y Pluviales** para evitar obstrucciones y asegurar el correcto funcionamiento de los desagües en la vivienda, cumpliendo la normativa.\n\n"
+            "5. **Curso Básico de Instalaciones Eléctricas (Calloni):**\n"
+            "   • **Enfoque:** Fundamento Teórico y Normativa (AEA).\n"
+            "   • **Detalle:** El 'por qué' de las instalaciones seguras (aprox. **300 pág.**). Cubre la **Reglamentación AEA**, **cálculo de cargas**, caída de tensión, coordinación de protecciones y seguridad eléctrica.\n\n"
+            "6. **Manual para el Técnico Instalador Electricista (Levy):**\n"
+            "   • **Enfoque:** Práctica, Montaje y Solución de Fallas.\n"
+            "   • **Detalle:** El 'cómo hacer' en la vida real (aprox. **200 pág.**). Una guía con **ilustraciones claras** para el cableado, montaje de circuitos y la reparación de problemas comunes.\n\n"
+            "7. **Cómo Proyectar una Vivienda (Moia):**\n"
+            "   • **Enfoque:** Anteproyecto, Funcionalidad y Dimensionamiento.\n"
+            "   • **Detalle:** El clásico de José Luis Moia. Enseña a organizar plantas y ambientes de forma eficiente, optimizar la ventilación y el asoleamiento, y aplicar escalas humanas y ergonomía en el diseño residencial.\n\n"
             f"💰 *Precio promocional:* {producto['precio']}"
         )
+        
         enviar_mensaje_texto(from_number, detalle)
         enviar_botones_comerciales(from_number)
 
@@ -214,7 +238,7 @@ def manejar_boton(from_number, opcion_id):
             from_number,
             f"🎉 ¡Excelente decisión! Podés abonar de forma segura en el siguiente link:\n\n"
             f"🔗 {producto['link_pago']}\n\n"
-            "Una vez realizado el pago, envianos el comprobante por acá y te mandamos los 8 PDFs al instante. 📥"
+            "Una vez realizado el pago, envianos el comprobante por acá y te mandamos los PDFs al instante. 📥"
         )
 
     elif opcion_id == "hablar_vendedor":
