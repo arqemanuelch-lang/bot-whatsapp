@@ -219,7 +219,16 @@ def receive_message():
         if tipo == "text":
             msg_body = message_data["text"]["body"].strip()
             guardar_mensaje(from_number, "entrante", msg_body)
-            manejar_texto(from_number, msg_body.lower())
+
+            referral = message_data.get("referral")
+            if referral:
+                # La persona llegó tocando un anuncio de Facebook/Instagram
+                # (Click to WhatsApp). Meta manda este dato en 'referral' sin
+                # importar qué haya escrito, así que respondemos automático
+                # sí o sí, independientemente de las palabras activadoras.
+                manejar_entrada_desde_ads(from_number, referral)
+            else:
+                manejar_texto(from_number, msg_body.lower())
 
         elif tipo == "interactive":
             interactive_data = message_data["interactive"]
@@ -282,6 +291,27 @@ PALABRAS_ACTIVADORAS = [
     "informacion",
     "kit maestro",
 ]
+
+
+def manejar_entrada_desde_ads(from_number, referral):
+    """Se dispara automáticamente cuando alguien te escribe tocando un anuncio
+    de Facebook o Instagram (Click to WhatsApp), sin importar qué haya
+    escrito. 'referral' trae datos del anuncio: headline, source_type
+    ('ad' o 'post'), source_url, media_type, etc.
+
+    A diferencia del saludo genérico, acá NO mandamos la lista para elegir
+    pack: la persona ya clickeó un anuncio de un pack puntual, así que va
+    directo a la ficha con Comprar / Ver qué incluye / Hablar con asesor.
+    """
+    titulo_anuncio = referral.get("headline") or referral.get("source_type") or "anuncio"
+    guardar_mensaje(from_number, "entrante", f"[Entró desde Facebook/Instagram: {titulo_anuncio}]")
+
+    # TODO: cuando tengas más de un pack, mapeá el anuncio (por ejemplo por
+    # referral.get("source_id") o por el texto de referral.get("headline"))
+    # a la clave de PRODUCTOS que corresponda. Por ahora, con un solo pack,
+    # siempre mandamos "kit_maestro".
+    clave = "kit_maestro"
+    enviar_ficha_producto(from_number, clave)
 
 
 def manejar_texto(from_number, msg_body_lower):
