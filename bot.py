@@ -22,7 +22,7 @@ DB_PATH = "mensajes.db"
 # Gemini: usamos la "Interactions API", que es la que funciona con las claves
 # nuevas de Google AI Studio (las que empiezan con "AQ.").
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 
 
 # =====================================================================
