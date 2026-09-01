@@ -59,65 +59,96 @@ if os.path.dirname(DB_PATH):
 
 # ---------------------------------------------------------------------
 # Recordatorio automático de compra: si le mandamos la ficha de un producto
-# a alguien y no toca NINGÚN botón en 3 minutos, le mandamos un mensaje
-# reofreciendo el kit. Se cancela apenas la persona toca cualquier botón,
-# o si un humano le responde/aprueba el pago desde el panel.
+# a alguien y no toca NINGÚN botón, le mandamos hasta DOS recordatorios:
+# uno a los 3 minutos, y otro (más urgente) a la hora si todavía no
+# interactuó. Ambos se cancelan apenas la persona toca cualquier botón,
+# manda un comprobante, o si un humano le responde/aprueba el pago desde
+# el panel.
 #
 # NOTA IMPORTANTE: esto usa threading.Timer en memoria. Funciona bien
 # mientras la app corra en UN SOLO proceso/worker (lo normal en Render para
 # un bot chico). Si en el futuro escalás a varios workers, esto habría que
 # migrarlo a algo persistente (una tabla en la base + un cron/scheduler).
 # =====================================================================
-SEGUNDOS_RECORDATORIO = 180  # 3 minutos
-RECORDATORIOS_PENDIENTES = {}  # numero -> threading.Timer
+SEGUNDOS_RECORDATORIO_CORTO = float(os.getenv("SEGUNDOS_RECORDATORIO_CORTO", "180"))  # 3 minutos
+SEGUNDOS_RECORDATORIO_LARGO = float(os.getenv("SEGUNDOS_RECORDATORIO_LARGO", "3600"))  # 1 hora
+RECORDATORIOS_PENDIENTES = {}  # numero -> threading.Timer (el de 3 minutos)
+RECORDATORIOS_PENDIENTES_LARGO = {}  # numero -> threading.Timer (el de 1 hora)
 ULTIMA_INTERACCION = {}  # numero -> timestamp (time.time()) de la última acción del usuario
 
 
 def marcar_interaccion(numero):
     """Registra que este número acaba de interactuar (mandó un mensaje o tocó
-    un botón). Se usa para evitar que el recordatorio de 3 minutos se dispare
-    justo en el instante en que la persona ya está actuando (carrera de
-    tiempos entre 'cancelar el aviso' y 'el aviso ya se estaba mandando')."""
+    un botón). Se usa para evitar que un recordatorio se dispare justo en el
+    instante en que la persona ya está actuando (carrera de tiempos entre
+    'cancelar el aviso' y 'el aviso ya se estaba mandando')."""
     ULTIMA_INTERACCION[numero] = time.time()
 
 
 def cancelar_recordatorio(numero):
-    timer = RECORDATORIOS_PENDIENTES.pop(numero, None)
-    if timer:
-        timer.cancel()
+    """Cancela CUALQUIER recordatorio pendiente para este número (tanto el
+    de 3 minutos como el de 1 hora, si estuvieran programados)."""
+    timer_corto = RECORDATORIOS_PENDIENTES.pop(numero, None)
+    if timer_corto:
+        timer_corto.cancel()
+    timer_largo = RECORDATORIOS_PENDIENTES_LARGO.pop(numero, None)
+    if timer_largo:
+        timer_largo.cancel()
 
 
-def programar_recordatorio_compra(numero, clave, delay_segundos=SEGUNDOS_RECORDATORIO):
-    """Programa el mensaje de recordatorio. Si ya había uno pendiente para
-    este número, lo reemplaza (reinicia el conteo de 3 minutos)."""
+def _armar_recordatorio(numero, clave, texto_mensaje):
+    """Función interna que arma el 'chequeo de seguridad' (para no mandar el
+    aviso si la persona interactuó hace muy poquito) y manda el mensaje +
+    los botones. La usan tanto el recordatorio corto como el largo."""
+    ultima = ULTIMA_INTERACCION.get(numero, 0)
+    if time.time() - ultima < 10:
+        return  # la persona ya está activa en la conversación, no la molestamos
+    producto = PRODUCTOS.get(clave)
+    if not producto:
+        return
+    enviar_mensaje_texto(numero, texto_mensaje)
+    enviar_botones_pack(numero, clave, texto="¿Cómo querés avanzar?", incluir_ver=True)
+
+
+def programar_recordatorio_compra(numero, clave):
+    """Programa los dos recordatorios (3 minutos y 1 hora) para este número.
+    Si ya había recordatorios pendientes, los reemplaza (reinicia el conteo)."""
     cancelar_recordatorio(numero)
 
-    def _enviar_recordatorio():
+    def _recordatorio_corto():
         RECORDATORIOS_PENDIENTES.pop(numero, None)
-
-        # Si la persona interactuó hace muy poquito (pudo haber tocado un
-        # botón justo en el instante en que este aviso ya se estaba
-        # disparando), no lo mandamos: ya está activa en la conversación.
-        ultima = ULTIMA_INTERACCION.get(numero, 0)
-        if time.time() - ultima < 10:
-            return
-
         producto = PRODUCTOS.get(clave)
         if not producto:
             return
-        enviar_mensaje_texto(
-            numero,
+        _armar_recordatorio(
+            numero, clave,
             f"👋 ¿Seguís pensando en el *{producto['titulo']}*?\n\n"
             f"Te lo dejamos por solo *{producto['precio']}*: "
             f"{len(producto['manuales'])} manuales técnicos completos, listos para descargar. 📚\n\n"
             "Cuando quieras avanzar, tocá el botón de abajo 👇",
         )
-        enviar_botones_pack(numero, clave, texto="¿Cómo querés avanzar?", incluir_ver=True)
 
-    timer = threading.Timer(delay_segundos, _enviar_recordatorio)
-    timer.daemon = True
-    RECORDATORIOS_PENDIENTES[numero] = timer
-    timer.start()
+    def _recordatorio_largo():
+        RECORDATORIOS_PENDIENTES_LARGO.pop(numero, None)
+        producto = PRODUCTOS.get(clave)
+        if not producto:
+            return
+        _armar_recordatorio(
+            numero, clave,
+            f"⏰ Todavía te estamos guardando el *{producto['titulo']}* a "
+            f"*{producto['precio']}*. Si tenés alguna duda antes de decidirte, "
+            "tocá 'Hablar con asesor' y te ayudamos al toque. 👇",
+        )
+
+    timer_corto = threading.Timer(SEGUNDOS_RECORDATORIO_CORTO, _recordatorio_corto)
+    timer_corto.daemon = True
+    RECORDATORIOS_PENDIENTES[numero] = timer_corto
+    timer_corto.start()
+
+    timer_largo = threading.Timer(SEGUNDOS_RECORDATORIO_LARGO, _recordatorio_largo)
+    timer_largo.daemon = True
+    RECORDATORIOS_PENDIENTES_LARGO[numero] = timer_largo
+    timer_largo.start()
 
 # Gemini: usamos la "Interactions API", que es la que funciona con las claves
 # nuevas de Google AI Studio (las que empiezan con "AQ.").
@@ -700,19 +731,34 @@ def manejar_boton(from_number, opcion_id):
 
     elif accion == "comprar_pack" and clave in PRODUCTOS:
         producto = PRODUCTOS[clave]
+
+        # Mensaje 1: la oferta con la urgencia de 1 hora.
         enviar_mensaje_texto(
             from_number,
-            "🎉 ¡Excelente decisión! Podés abonar por cualquiera de estos medios:\n\n"
-            f"1️⃣ *Pago Online (Tarjeta / Rapipago / Dinero en cuenta):*\n"
-            f"🔗 {producto['link_pago']}\n\n"
-            "2️⃣ *Transferencia Bancaria o Lemon 🍋:*\n"
+            "🔥 *¡Oferta imperdible por 1 hora!* 🔥\n\n"
+            f"El *{producto['titulo']}* completo, con los {len(producto['manuales'])} "
+            f"manuales técnicos, hoy te sale solo *{producto['precio']}*.\n\n"
+            "Esta promo vence en 1 hora, así que si te interesa, aprovechala ahora. 👇",
+        )
+
+        # Mensaje 2: la lista de los libros que incluye.
+        lineas_libros = [f"📚 *Esto es lo que te llevás:*\n"]
+        for i, manual in enumerate(producto["manuales"], start=1):
+            lineas_libros.append(f"{i}️⃣ {manual['titulo']} ({manual['autor']})")
+        enviar_mensaje_texto(from_number, "\n".join(lineas_libros))
+
+        # Mensaje 3: los datos para transferir.
+        enviar_mensaje_texto(
+            from_number,
+            "💸 *Podés abonar por transferencia o Lemon:*\n\n"
             f"👉 *Alias:* `{DATOS_TRANSFERENCIA['alias']}`\n"
             f"👉 *CVU:* `{DATOS_TRANSFERENCIA['cvu']}`\n"
             f"👉 *Lemontag:* `{DATOS_TRANSFERENCIA['lemontag']}`\n"
             f"👤 *Titular:* {DATOS_TRANSFERENCIA['titular']}\n\n"
-            "📩 *Importante:* Una vez realizado el pago, envianos el comprobante por este medio "
-            f"y te enviamos los {len(producto['manuales'])} manuales al instante.",
+            "📩 Una vez realizado el pago, enviame el comprobante (foto o PDF) acá mismo "
+            "en el chat y te mando los manuales al instante.",
         )
+
         # Botón para que el cliente avise que ya pagó (le recordamos mandar el comprobante).
         payload_ya_pague = {
             "messaging_product": "whatsapp",
