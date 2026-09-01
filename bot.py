@@ -2,6 +2,7 @@ import os
 import hmac
 import hashlib
 import sqlite3
+import threading
 import unicodedata
 import requests
 from datetime import datetime
@@ -20,6 +21,51 @@ PANEL_PASSWORD = os.getenv("PANEL_PASSWORD", "cambiar_esta_clave")
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "cambiar_esta_clave_tambien")
 
 DB_PATH = "mensajes.db"
+
+# ---------------------------------------------------------------------
+# Recordatorio automático de compra: si le mandamos la ficha de un producto
+# a alguien y no toca NINGÚN botón en 3 minutos, le mandamos un mensaje
+# reofreciendo el kit. Se cancela apenas la persona toca cualquier botón,
+# o si un humano le responde/aprueba el pago desde el panel.
+#
+# NOTA IMPORTANTE: esto usa threading.Timer en memoria. Funciona bien
+# mientras la app corra en UN SOLO proceso/worker (lo normal en Render para
+# un bot chico). Si en el futuro escalás a varios workers, esto habría que
+# migrarlo a algo persistente (una tabla en la base + un cron/scheduler).
+# =====================================================================
+SEGUNDOS_RECORDATORIO = 180  # 3 minutos
+RECORDATORIOS_PENDIENTES = {}  # numero -> threading.Timer
+
+
+def cancelar_recordatorio(numero):
+    timer = RECORDATORIOS_PENDIENTES.pop(numero, None)
+    if timer:
+        timer.cancel()
+
+
+def programar_recordatorio_compra(numero, clave, delay_segundos=SEGUNDOS_RECORDATORIO):
+    """Programa el mensaje de recordatorio. Si ya había uno pendiente para
+    este número, lo reemplaza (reinicia el conteo de 3 minutos)."""
+    cancelar_recordatorio(numero)
+
+    def _enviar_recordatorio():
+        RECORDATORIOS_PENDIENTES.pop(numero, None)
+        producto = PRODUCTOS.get(clave)
+        if not producto:
+            return
+        enviar_mensaje_texto(
+            numero,
+            f"👋 ¿Seguís pensando en el *{producto['titulo']}*?\n\n"
+            f"Te lo dejamos por solo *{producto['precio']}*: "
+            f"{len(producto['manuales'])} manuales técnicos completos, listos para descargar. 📚\n\n"
+            "Cuando quieras avanzar, tocá el botón de abajo 👇",
+        )
+        enviar_botones_pack(numero, clave, texto="¿Cómo querés avanzar?", incluir_ver=True)
+
+    timer = threading.Timer(delay_segundos, _enviar_recordatorio)
+    timer.daemon = True
+    RECORDATORIOS_PENDIENTES[numero] = timer
+    timer.start()
 
 # Gemini: usamos la "Interactions API", que es la que funciona con las claves
 # nuevas de Google AI Studio (las que empiezan con "AQ.").
@@ -40,23 +86,32 @@ PRODUCTOS = {
         "descripcion_corta": "8 manuales técnicos en PDF",
         "precio": "$8.000",
         "link_pago": "https://mpago.la/17uyqFK",
+        "imagen": "https://drive.google.com/uc?export=view&id=1TREha1W6E_F7f_CC3h_PqiMk0CIHpGv5",
         "manuales": [
             {"titulo": "Cómo se proyecta una Vivienda", "autor": "J.L. Moia",
-             "link": "https://drive.google.com/file/d/12MHAHdQZ7Bm7RTBTD1SVdd0XxDXNO54L/view?usp=sharing"},
+             "link": "https://drive.google.com/file/d/12MHAHdQZ7Bm7RTBTD1SVdd0XxDXNO54L/view?usp=sharing",
+             "portada": "https://drive.google.com/uc?export=view&id=1TdxnVCTXitaqHhySC_eC1C50lM4PY96s"},
             {"titulo": "Curso básico de instalaciones eléctricas", "autor": "Calloni Rodrigues",
-             "link": "https://drive.google.com/file/d/1XTeI93qPpw0BT2J0l7qhiY_MJKd1iXHD/view?usp=sharing"},
+             "link": "https://drive.google.com/file/d/1XTeI93qPpw0BT2J0l7qhiY_MJKd1iXHD/view?usp=sharing",
+             "portada": "https://drive.google.com/uc?export=view&id=1AyIjxtVkh9r_8u000WFco3ZS52ylGOXQ"},
             {"titulo": "Instalaciones Eléctricas Monofásicas", "autor": "Ing. César Anibal Rey",
-             "link": "https://drive.google.com/file/d/19TKBsowVtj4Q0w5OSOaZ7AeS7aBEs_Kw/view?usp=sharing"},
+             "link": "https://drive.google.com/file/d/19TKBsowVtj4Q0w5OSOaZ7AeS7aBEs_Kw/view?usp=sharing",
+             "portada": "https://drive.google.com/uc?export=view&id=1R8Dh0v98CD50XWpp7Q46L3ZLXTBaYU6N"},
             {"titulo": "Manual para el Técnico Instalador Electricista Domiciliario", "autor": "Levy",
-             "link": "https://drive.google.com/file/d/19TKBsowVtj4Q0w5OSOaZ7AeS7aBEs_Kw/view?usp=sharing"},
+             "link": "https://drive.google.com/file/d/19TKBsowVtj4Q0w5OSOaZ7AeS7aBEs_Kw/view?usp=sharing",
+             "portada": "https://drive.google.com/uc?export=view&id=15954BBRDTvf1TA09_W6YRl5h6e3rXN_n"},
             {"titulo": "Manual Práctico de la Construcción", "autor": "Jaime Nisnovich",
-             "link": "https://drive.google.com/file/d/1kKYvLhGcKLHqmit32kLVuiX3swnBGKGv/view?usp=sharing"},
+             "link": "https://drive.google.com/file/d/1kKYvLhGcKLHqmit32kLVuiX3swnBGKGv/view?usp=sharing",
+             "portada": "https://drive.google.com/uc?export=view&id=1TREha1W6E_F7f_CC3h_PqiMk0CIHpGv5"},
             {"titulo": "Manual Práctico de Instalaciones Sanitarias: Tomo 1", "autor": "Nisnovich, Castro, Lázaro",
-             "link": "https://drive.google.com/file/d/1oHuKcqXp2SFBAyYSbmqByJFjyn7i7yuY/view?usp=sharing"},
+             "link": "https://drive.google.com/file/d/1oHuKcqXp2SFBAyYSbmqByJFjyn7i7yuY/view?usp=sharing",
+             "portada": "https://drive.google.com/uc?export=view&id=13xrKMOOKzhDr-9rmHesNH4Q_fIcWfYk7"},
             {"titulo": "Manual Práctico de Instalaciones Sanitarias: Tomo 2", "autor": "Nisnovich, Castro, Lázaro",
-             "link": "https://drive.google.com/file/d/1dQQC9-GfUjkS-GTAfzL8x1_G4A15k1GO/view?usp=sharing"},
+             "link": "https://drive.google.com/file/d/1dQQC9-GfUjkS-GTAfzL8x1_G4A15k1GO/view?usp=sharing",
+             "portada": "https://drive.google.com/uc?export=view&id=1sqyz9QOvsGMIKzX8XivTGcqfWnMzGyCH"},
             {"titulo": "Manual Práctico para Proyectar Buenas Viviendas", "autor": "Jaime Nisnovich",
-             "link": "https://drive.google.com/file/d/1_YZf_GexbX-nE-PK4fBWlv05Ygu1iVw5/view?usp=sharing"},
+             "link": "https://drive.google.com/file/d/1_YZf_GexbX-nE-PK4fBWlv05Ygu1iVw5/view?usp=sharing",
+             "portada": "https://drive.google.com/uc?export=view&id=1zuYVNub4yUOPAtAyyZQuLk5g81E6LhYH"},
         ],
     },
     # Ejemplo de cómo se vería un segundo pack (descomentalo y completalo cuando lo tengas):
@@ -347,6 +402,7 @@ def receive_message():
             mime_type = media_obj.get("mime_type", "")
             if media_id:
                 guardar_comprobante(from_number, media_id, mime_type)
+                cancelar_recordatorio(from_number)
                 guardar_mensaje(
                     from_number, "entrante", "📎 Comprobante recibido (pendiente de aprobación)"
                 )
@@ -466,6 +522,10 @@ def manejar_texto(from_number, msg_body_lower):
 
 
 def manejar_boton(from_number, opcion_id):
+    # Si tocó cualquier botón, ya no le mandamos el recordatorio automático
+    # de "¿seguís pensando en comprar?" — está interactuando activamente.
+    cancelar_recordatorio(from_number)
+
     # Los ids vienen con el formato "accion:clave_producto" (ej: "ver_resena:kit_maestro").
     # "hablar_vendedor" no tiene clave porque no depende de un producto puntual.
     accion, _, clave = opcion_id.partition(":")
@@ -474,7 +534,7 @@ def manejar_boton(from_number, opcion_id):
         enviar_ficha_producto(from_number, clave)
 
     elif accion == "ver_resena" and clave in PRODUCTOS:
-        enviar_mensaje_texto(from_number, _texto_detalle_manuales(clave))
+        enviar_resena_con_portadas(from_number, clave)
         enviar_botones_pack(from_number, clave, incluir_ver=False)
 
     elif accion == "comprar_pack" and clave in PRODUCTOS:
@@ -564,7 +624,10 @@ def enviar_menu_productos(to):
 
 def enviar_ficha_producto(to, clave):
     """Se muestra cuando el usuario elige un pack de la lista principal,
-    o cuando se detecta el producto directamente por texto/anuncio."""
+    o cuando se detecta el producto directamente por texto/anuncio.
+    Si el producto tiene una imagen de portada configurada, se manda
+    primero la imagen con el texto como descripción (caption), y después
+    los botones para elegir qué hacer."""
     producto = PRODUCTOS[clave]
     texto = (
         f"📦 *{producto['titulo']}*\n"
@@ -572,7 +635,32 @@ def enviar_ficha_producto(to, clave):
         f"💰 *Precio:* {producto['precio']}\n\n"
         "¿Qué te gustaría hacer?"
     )
-    enviar_botones_pack(to, clave, texto=texto, incluir_ver=True)
+
+    imagen_url = producto.get("imagen")
+    if imagen_url:
+        enviar_imagen(to, imagen_url, caption=texto)
+        enviar_botones_pack(to, clave, texto="👆 Elegí una opción:", incluir_ver=True)
+    else:
+        enviar_botones_pack(to, clave, texto=texto, incluir_ver=True)
+
+    # Si en 3 minutos no toca ningún botón, le mandamos un recordatorio.
+    programar_recordatorio_compra(to, clave)
+
+
+def enviar_imagen(to, imagen_url, caption=""):
+    url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "image",
+        "image": {"link": imagen_url, "caption": caption},
+    }
+    _post_a_meta(url, headers, payload)
+    guardar_mensaje(to, "saliente", f"[Imagen enviada] {caption}")
 
 
 def enviar_botones_pack(to, clave, texto="¿Cómo querés avanzar?", incluir_ver=False):
@@ -595,13 +683,24 @@ def enviar_botones_pack(to, clave, texto="¿Cómo querés avanzar?", incluir_ver
     _enviar_interactivo(to, payload, texto)
 
 
-def _texto_detalle_manuales(clave):
+def enviar_resena_con_portadas(to, clave):
+    """Manda una imagen por cada manual del pack (portada + título/autor como
+    descripción), en vez de un solo mensaje de texto con links. Si a algún
+    manual todavía no le cargamos la portada (campo 'portada' vacío), para
+    ese en particular mandamos su título/autor como texto simple, para no
+    dejarlo afuera de la lista."""
     producto = PRODUCTOS[clave]
-    lineas = [f"📖 *Contenido del {producto['titulo']}*:\n"]
+    enviar_mensaje_texto(to, f"📖 *Esto es lo que incluye el {producto['titulo']}:*")
+
     for i, manual in enumerate(producto["manuales"], start=1):
-        lineas.append(f"{i}️⃣ *{manual['titulo']}* ({manual['autor']})\n👉 *[Ver adelanto]*: {manual['link']}\n")
-    lineas.append(f"💰 *Precio promocional:* {producto['precio']}")
-    return "\n".join(lineas)
+        caption = f"{i}️⃣ *{manual['titulo']}*\n✍️ {manual['autor']}"
+        portada = manual.get("portada")
+        if portada:
+            enviar_imagen(to, portada, caption=caption)
+        else:
+            enviar_mensaje_texto(to, caption)
+
+    enviar_mensaje_texto(to, f"💰 *Precio promocional:* {producto['precio']}")
 
 
 def _enviar_interactivo(to, payload, texto_para_guardar):
@@ -975,6 +1074,7 @@ def panel_aprobar():
     if numero and comprobante_id:
         marcar_comprobante_aprobado(comprobante_id)
         desactivar_modo_ia(numero)  # ya lo atendió un humano al aprobar el pago
+        cancelar_recordatorio(numero)
         enviar_manuales_completos(numero)
     return redirect(f"/panel?numero={numero}")
 
@@ -987,6 +1087,7 @@ def panel_responder():
     texto = request.form.get("texto", "").strip()
     if numero and texto:
         desactivar_modo_ia(numero)  # ya lo está atendiendo un humano
+        cancelar_recordatorio(numero)
         enviar_mensaje_texto(numero, texto)
     return redirect(f"/panel?numero={numero}")
 
