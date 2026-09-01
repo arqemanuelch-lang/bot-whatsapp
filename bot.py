@@ -732,6 +732,13 @@ def manejar_boton(from_number, opcion_id):
     elif accion == "comprar_pack" and clave in PRODUCTOS:
         producto = PRODUCTOS[clave]
 
+        # Si hay una imagen de banner para la oferta, la mandamos primero
+        # (sin caption: el texto va aparte, así si la imagen falla, el
+        # mensaje de la oferta igual le llega al cliente).
+        imagen_oferta = producto.get("imagen_oferta")
+        if imagen_oferta:
+            enviar_imagen(from_number, imagen_oferta)
+
         # Mensaje 1: la oferta con la urgencia de 1 hora.
         enviar_mensaje_texto(
             from_number,
