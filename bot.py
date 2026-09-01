@@ -219,8 +219,36 @@ def init_db():
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS mensajes_procesados (
+            id TEXT PRIMARY KEY,
+            fecha TEXT NOT NULL
+        )
+        """
+    )
     conn.commit()
     conn.close()
+
+
+def ya_fue_procesado(message_id):
+    """Chequea si ya procesamos este mensaje antes (Meta a veces reenvía el
+    mismo webhook más de una vez, por ejemplo si el servidor tardó en
+    responder). Si ya lo vimos, lo ignoramos para no responder duplicado."""
+    if not message_id:
+        return False
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute(
+            "INSERT INTO mensajes_procesados (id, fecha) VALUES (?, ?)",
+            (message_id, datetime.utcnow().strftime("%d/%m %H:%M:%S")),
+        )
+        conn.commit()
+        return False  # se pudo insertar => es la primera vez que lo vemos
+    except sqlite3.IntegrityError:
+        return True  # ya existía ese id => es un duplicado, lo ignoramos
+    finally:
+        conn.close()
 
 
 def guardar_mensaje(numero, direccion, texto):
@@ -361,6 +389,13 @@ def receive_message():
         message_data = value["messages"][0]
         from_number = message_data["from"]
         tipo = message_data.get("type")
+
+        # Meta a veces reenvía el mismo mensaje más de una vez (por ejemplo si
+        # el servidor tardó en responder). Si ya procesamos este mensaje
+        # (mismo wamid), lo ignoramos para no contestar duplicado.
+        message_id = message_data.get("id")
+        if ya_fue_procesado(message_id):
+            return jsonify({"status": "duplicado_ignorado"}), 200
 
         if tipo == "text":
             msg_body = message_data["text"]["body"].strip()
