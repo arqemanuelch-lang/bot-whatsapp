@@ -45,7 +45,17 @@ TELEGRAM_WEBHOOK_URL = os.getenv("TELEGRAM_WEBHOOK_URL")  # ej: https://tu-app.o
 PANEL_PASSWORD = os.getenv("PANEL_PASSWORD", "cambiar_esta_clave")
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "cambiar_esta_clave_tambien")
 
-DB_PATH = "mensajes.db"
+# Dónde vive la base de datos. Por defecto se guarda en la carpeta de la
+# app (que en Render se borra en cada redeploy/reinicio, en el plan
+# gratuito). Si configurás la variable de entorno DB_PATH apuntando a un
+# disco persistente de Render (por ejemplo "/var/data/mensajes.db"), los
+# datos van a sobrevivir a los redeploys y reinicios.
+DB_PATH = os.getenv("DB_PATH", "mensajes.db")
+
+# Si la ruta incluye una carpeta que todavía no existe (por ejemplo la
+# primera vez que se monta el disco), la creamos para que sqlite no falle.
+if os.path.dirname(DB_PATH):
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
 # ---------------------------------------------------------------------
 # Recordatorio automático de compra: si le mandamos la ficha de un producto
@@ -279,6 +289,58 @@ def configurar_webhook_telegram():
         print("Error configurando webhook de Telegram:", e)
 
 
+# =====================================================================
+#  Backup automático de la base de datos por Telegram
+#  ----------------------------------------------------------------
+#  El plan gratuito de Render puede borrar el archivo de la base de datos
+#  en cada redeploy/reinicio. Como respaldo (gratis), le mandamos el
+#  archivo completo por Telegram cada cierta cantidad de horas, así
+#  siempre queda una copia reciente a salvo en tu chat de Telegram.
+# =====================================================================
+BACKUP_INTERVALO_HORAS = float(os.getenv("BACKUP_INTERVALO_HORAS", "24"))
+
+
+def enviar_backup_telegram():
+    """Manda el archivo actual de la base de datos (mensajes.db) a Telegram
+    como documento adjunto."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+    if not os.path.exists(DB_PATH):
+        return
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument"
+        fecha_legible = datetime.utcnow().strftime("%d/%m/%Y %H:%M UTC")
+        with open(DB_PATH, "rb") as archivo:
+            resp = requests.post(
+                url,
+                data={
+                    "chat_id": TELEGRAM_CHAT_ID,
+                    "caption": f"🗄️ Backup automático de la base de datos — {fecha_legible}",
+                },
+                files={"document": (os.path.basename(DB_PATH), archivo)},
+                timeout=30,
+            )
+        if resp.status_code >= 400:
+            print("Error mandando backup a Telegram:", resp.text)
+    except Exception as e:
+        print("Error mandando backup a Telegram:", e)
+
+
+def iniciar_backups_automaticos():
+    """Arranca un hilo en segundo plano que manda el backup cada
+    BACKUP_INTERVALO_HORAS horas, para siempre, mientras la app esté viva."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+
+    def _loop():
+        while True:
+            time.sleep(BACKUP_INTERVALO_HORAS * 3600)
+            enviar_backup_telegram()
+
+    hilo = threading.Thread(target=_loop, daemon=True)
+    hilo.start()
+
+
 def guardar_mensaje(numero, direccion, texto):
     conn = sqlite3.connect(DB_PATH)
     conn.execute(
@@ -366,6 +428,7 @@ def marcar_comprobante_aprobado(comprobante_id):
 
 init_db()
 configurar_webhook_telegram()
+iniciar_backups_automaticos()
 
 
 # =====================================================================
@@ -493,6 +556,12 @@ def telegram_webhook():
 
         texto_admin = (mensaje_telegram.get("text") or "").strip()
         respondido_a = mensaje_telegram.get("reply_to_message")
+
+        # Comando manual: escribiendo /backup (sin responder a nada en
+        # particular), mandamos el archivo de la base de datos al toque.
+        if texto_admin.lower() == "/backup":
+            enviar_backup_telegram()
+            return jsonify({"status": "backup_enviado"}), 200
 
         if not texto_admin or not respondido_a:
             return jsonify({"status": "ignorado"}), 200
@@ -740,6 +809,9 @@ def enviar_ficha_producto(to, clave):
 
 
 def enviar_imagen(to, imagen_url, caption=""):
+    """Manda una imagen por WhatsApp. Reintenta una vez más si el primer
+    intento falla (a veces Meta tarda en descargar la imagen y da timeout,
+    sobre todo justo después de que el servidor estuvo inactivo)."""
     url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
     headers = {
         "Authorization": f"Bearer {WHATSAPP_TOKEN}",
@@ -751,7 +823,15 @@ def enviar_imagen(to, imagen_url, caption=""):
         "type": "image",
         "image": {"link": imagen_url, "caption": caption},
     }
-    _post_a_meta(url, headers, payload)
+
+    exito = _post_a_meta(url, headers, payload)
+    if not exito:
+        print("Primer intento de mandar imagen falló, reintentando en 2 segundos...")
+        time.sleep(2)
+        exito = _post_a_meta(url, headers, payload)
+        if not exito:
+            print("Segundo intento de mandar imagen también falló, se omite la imagen.")
+
     guardar_mensaje(to, "saliente", f"[Imagen enviada] {caption}")
 
 
@@ -925,12 +1005,17 @@ def enviar_mensaje_texto(to, texto):
 
 
 def _post_a_meta(url, headers, payload):
+    """Hace el POST a la API de Meta. Devuelve True si salió bien (200-299),
+    False si falló (por error de Meta o de conexión)."""
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=10)
         if response.status_code >= 400:
             print("Error de Meta al enviar mensaje:", response.status_code, response.text)
+            return False
+        return True
     except requests.exceptions.RequestException as e:
         print("Error al llamar a la API de Meta:", e)
+        return False
 
 
 # =====================================================================
