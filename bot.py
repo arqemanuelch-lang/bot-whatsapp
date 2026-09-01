@@ -347,6 +347,7 @@ PALABRAS_ACTIVADORAS = [
     "mas informacion",
     "informacion",
     "kit maestro",
+    "droply",
 ]
 
 
@@ -399,7 +400,7 @@ def manejar_texto(from_number, msg_body_lower):
     else:
         enviar_mensaje_texto(
             from_number,
-            "No entendí tu mensaje 🤔. Escribí *hola* para ver nuestros packs disponibles.",
+            "No entendí tu mensaje 🤔. Escribí *DROPLY* para ver nuestros packs disponibles.",
         )
 
 
