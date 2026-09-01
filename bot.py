@@ -943,22 +943,60 @@ LOGIN_HTML = """
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Ingresar — Panel {{ nombre_negocio }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    body { font-family: Arial, sans-serif; background:#f2f2f2; display:flex; align-items:center;
-           justify-content:center; height:100vh; margin:0; }
-    .caja { background:white; padding:24px; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,.12);
-            width:90%; max-width:320px; }
-    h1 { font-size:18px; color:#1f6feb; margin-top:0; }
-    input { width:100%; padding:10px; margin:10px 0; border:1px solid #ccc; border-radius:8px;
-            font-size:15px; box-sizing:border-box; }
-    button { width:100%; padding:10px; background:#1f6feb; color:white; border:none;
-             border-radius:8px; font-size:15px; cursor:pointer; }
-    .error { color:#c0392b; font-size:13px; }
+    :root {
+      --tinta: #1B2430;
+      --acento: #B85C38;
+      --papel: #FAF8F5;
+      --borde: #E4DFD6;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--tinta);
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; margin: 0; padding: 24px;
+    }
+    .caja {
+      background: var(--papel);
+      padding: 32px 28px;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.35);
+      width: 100%; max-width: 340px;
+    }
+    .marca {
+      font-size: 13px; font-weight: 600; letter-spacing: .02em;
+      color: var(--acento); margin: 0 0 4px;
+    }
+    h1 {
+      font-size: 20px; font-weight: 700; color: var(--tinta);
+      margin: 0 0 24px; line-height: 1.3;
+    }
+    input {
+      width: 100%; padding: 12px 14px; margin-bottom: 12px;
+      border: 1.5px solid var(--borde); border-radius: 10px;
+      font-size: 15px; font-family: inherit; box-sizing: border-box;
+      background: white;
+    }
+    input:focus { outline: none; border-color: var(--acento); }
+    button {
+      width: 100%; padding: 12px; background: var(--acento); color: white;
+      border: none; border-radius: 10px; font-size: 15px; font-weight: 600;
+      font-family: inherit; cursor: pointer;
+    }
+    button:hover { filter: brightness(1.08); }
+    .error {
+      color: #A33; font-size: 13px; margin: 12px 0 0; padding: 10px 12px;
+      background: #FBEAEA; border-radius: 8px;
+    }
   </style>
 </head>
 <body>
   <div class="caja">
-    <h1>🔒 Panel {{ nombre_negocio }}</h1>
+    <p class="marca">{{ nombre_negocio }}</p>
+    <h1>Ingresá para ver tus conversaciones</h1>
     <form method="POST">
       <input type="password" name="clave" placeholder="Clave de acceso" autofocus required>
       <button type="submit">Ingresar</button>
@@ -977,58 +1015,196 @@ PANEL_HTML = """
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="refresh" content="15">
   <title>Panel {{ nombre_negocio }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    body { font-family: Arial, sans-serif; background:#f2f2f2; margin:0; padding:0; display:flex; height:100vh; }
-    .lista { width:100%; max-width:280px; background:white; overflow-y:auto; border-right:1px solid #ddd; }
-    .lista a { display:block; padding:12px 14px; text-decoration:none; color:#222; border-bottom:1px solid #eee; }
-    .lista a.activo { background:#e8f0fe; }
-    .avatar { display:inline-block; width:28px; height:28px; border-radius:50%; background:#1f6feb;
-              color:white; text-align:center; line-height:28px; margin-right:8px; font-size:13px; }
-    .chat { flex:1; display:flex; flex-direction:column; }
-    .header { padding:14px; background:white; border-bottom:1px solid #ddd; font-weight:bold; }
-    .mensajes { flex:1; overflow-y:auto; padding:14px; }
-    .msg { padding:8px 12px; border-radius:10px; margin:6px 0; max-width:75%; font-size:14px; }
-    .entrante { background:#e8f0fe; }
-    .saliente { background:#d1f5d3; margin-left:auto; text-align:right; }
-    .fecha { font-size:11px; color:#888; margin-top:2px; }
-    form.responder { display:flex; padding:10px; background:white; border-top:1px solid #ddd; }
-    form.responder input { flex:1; padding:10px; border:1px solid #ccc; border-radius:8px; margin-right:8px; }
-    form.responder button { padding:10px 16px; background:#1f6feb; color:white; border:none; border-radius:8px; }
-    .salir { font-size:12px; color:#888; text-decoration:none; float:right; padding:14px; }
-    .comprobante { background:#fff8e1; border:1px solid #ffd54f; border-radius:10px; padding:12px;
-                   margin:10px 14px; font-size:14px; }
-    .comprobante img { max-width:100%; border-radius:8px; margin:8px 0; display:block; }
-    .comprobante a.ver { color:#1f6feb; font-size:13px; }
-    .comprobante form { margin-top:8px; }
-    .btn-aprobar { background:#2e7d32; color:white; border:none; padding:8px 14px; border-radius:8px;
-                   cursor:pointer; font-size:14px; }
-    .badge { background:#ffd54f; color:#7a5b00; font-size:11px; padding:2px 6px; border-radius:6px;
-             margin-left:6px; }
+    :root {
+      --tinta: #1B2430;
+      --tinta-suave: #2A3646;
+      --acento: #B85C38;
+      --aprobar: #2F6B4F;
+      --pendiente: #B8862F;
+      --papel: #FAF8F5;
+      --borde: #E4DFD6;
+      --texto-claro: #6B6459;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--papel); margin: 0; padding: 0;
+      display: flex; height: 100vh; overflow: hidden;
+      color: var(--tinta);
+    }
+
+    /* ---------- Barra lateral (lista de conversaciones) ---------- */
+    .lista {
+      width: 100%; max-width: 320px; background: var(--tinta);
+      display: flex; flex-direction: column; flex-shrink: 0;
+    }
+    .lista-header {
+      padding: 18px 16px 12px; display: flex; align-items: center;
+      justify-content: space-between;
+    }
+    .lista-header .marca { color: white; font-weight: 700; font-size: 15px; margin: 0; }
+    .salir {
+      font-size: 12px; color: #B8B2A6; text-decoration: none; font-weight: 500;
+    }
+    .salir:hover { color: white; }
+    .buscador { padding: 0 16px 12px; }
+    .buscador input {
+      width: 100%; padding: 9px 12px; border-radius: 8px; border: none;
+      background: var(--tinta-suave); color: white; font-size: 14px; font-family: inherit;
+    }
+    .buscador input::placeholder { color: #8B8578; }
+    .buscador input:focus { outline: 1.5px solid var(--acento); }
+    .conversaciones { flex: 1; overflow-y: auto; }
+    .fila {
+      display: flex; align-items: center; gap: 10px;
+      padding: 11px 16px; text-decoration: none; color: #E8E4DC;
+      border-left: 3px solid transparent;
+    }
+    .fila:hover { background: var(--tinta-suave); }
+    .fila.activo { background: var(--tinta-suave); border-left-color: var(--acento); }
+    .avatar {
+      width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
+      color: white; display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 600;
+    }
+    .fila-texto { min-width: 0; flex: 1; }
+    .fila-nombre {
+      font-size: 14px; font-weight: 600; color: white;
+      display: flex; align-items: center; gap: 6px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .fila-preview {
+      font-size: 12.5px; color: #9B9483; margin-top: 2px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .badge-pendiente {
+      background: var(--pendiente); color: white; font-size: 10.5px; font-weight: 600;
+      padding: 2px 7px; border-radius: 20px; flex-shrink: 0;
+    }
+    .lista-vacia { padding: 24px 16px; color: #9B9483; font-size: 13.5px; line-height: 1.5; }
+
+    /* ---------- Panel de conversación ---------- */
+    .chat { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--papel); }
+    .chat-header {
+      padding: 16px 22px; background: white; border-bottom: 1px solid var(--borde);
+      display: flex; align-items: center; gap: 12px;
+    }
+    .chat-header .avatar { width: 40px; height: 40px; font-size: 15px; }
+    .chat-header-info .nombre { font-weight: 700; font-size: 15.5px; }
+    .chat-header-info .numero { font-size: 12.5px; color: var(--texto-claro); }
+    .volver { display: none; color: var(--tinta); text-decoration: none; font-size: 20px; margin-right: 2px; }
+
+    .comprobante {
+      background: #FCF3E3; border-left: 3px solid var(--pendiente);
+      border-radius: 10px; padding: 14px 16px; margin: 16px 22px 0; font-size: 14px;
+    }
+    .comprobante strong { display: block; margin-bottom: 8px; font-size: 13.5px; }
+    .comprobante img { max-width: 100%; border-radius: 8px; margin: 8px 0; display: block; }
+    .comprobante a.ver { color: var(--acento); font-size: 13px; font-weight: 600; }
+    .btn-aprobar {
+      background: var(--aprobar); color: white; border: none; padding: 9px 16px;
+      border-radius: 8px; cursor: pointer; font-size: 13.5px; font-weight: 600;
+      font-family: inherit; margin-top: 10px;
+    }
+    .btn-aprobar:hover { filter: brightness(1.1); }
+
+    .mensajes { flex: 1; overflow-y: auto; padding: 20px 22px; display: flex; flex-direction: column; gap: 3px; }
+    .fila-msg { display: flex; }
+    .fila-msg.saliente { justify-content: flex-end; }
+    .msg {
+      padding: 9px 13px; border-radius: 12px; margin: 3px 0; max-width: 68%;
+      font-size: 14.5px; line-height: 1.4; box-shadow: 0 1px 2px rgba(0,0,0,.04);
+    }
+    .entrante { background: white; border: 1px solid var(--borde); }
+    .saliente { background: var(--acento); color: white; }
+    .fecha { font-size: 10.5px; margin-top: 4px; opacity: .65; }
+    .entrante .fecha { color: var(--texto-claro); }
+    .saliente .fecha { color: rgba(255,255,255,.8); }
+
+    /* Eventos del sistema (menú enviado, opción elegida, etc.) — no son
+       mensajes de chat reales, van como una etiqueta centrada discreta. */
+    .evento {
+      align-self: center; font-size: 11.5px; color: var(--texto-claro);
+      background: #EFEAE1; padding: 4px 12px; border-radius: 20px; margin: 6px 0;
+    }
+
+    form.responder {
+      display: flex; gap: 10px; padding: 14px 22px; background: white;
+      border-top: 1px solid var(--borde);
+    }
+    form.responder input {
+      flex: 1; padding: 11px 14px; border: 1.5px solid var(--borde);
+      border-radius: 10px; font-size: 14.5px; font-family: inherit;
+    }
+    form.responder input:focus { outline: none; border-color: var(--acento); }
+    form.responder button {
+      padding: 11px 18px; background: var(--acento); color: white; border: none;
+      border-radius: 10px; font-weight: 600; font-size: 14px; font-family: inherit; cursor: pointer;
+    }
+    form.responder button:hover { filter: brightness(1.08); }
+
+    .chat-vacio {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+      color: var(--texto-claro); font-size: 14.5px; text-align: center; padding: 24px;
+    }
+
+    /* ---------- Mobile: una vista a la vez ---------- */
+    @media (max-width: 720px) {
+      .lista { max-width: none; }
+      body.chat-abierto .lista { display: none; }
+      body:not(.chat-abierto) .chat { display: none; }
+      .volver { display: inline-block; }
+    }
   </style>
 </head>
-<body>
+<body class="{{ 'chat-abierto' if numero_activo and conversaciones.get(numero_activo) else '' }}">
   <div class="lista">
-    <a href="/panel/logout" class="salir">Salir</a>
-    {% for numero, datos in conversaciones.items() %}
-      <a href="/panel?numero={{ numero }}" class="{{ 'activo' if numero == numero_activo else '' }}">
-        <span class="avatar">{{ datos.inicial }}</span>{{ datos.nombre }}
-        {% if numero in comprobantes_pendientes %}<span class="badge">📎 pendiente</span>{% endif %}
-      </a>
-    {% else %}
-      <p style="padding:14px;">Sin mensajes todavía.</p>
-    {% endfor %}
+    <div class="lista-header">
+      <p class="marca">{{ nombre_negocio }}</p>
+      <a href="/panel/logout" class="salir">Salir</a>
+    </div>
+    <div class="buscador">
+      <input type="text" id="buscar" placeholder="Buscar conversación..." oninput="filtrar()">
+    </div>
+    <div class="conversaciones" id="lista-conversaciones">
+      {% for numero, datos in conversaciones.items() %}
+        <a href="/panel?numero={{ numero }}" class="fila {{ 'activo' if numero == numero_activo else '' }}" data-nombre="{{ datos.nombre|lower }}">
+          <span class="avatar" style="background:{{ datos.color }};">{{ datos.inicial }}</span>
+          <span class="fila-texto">
+            <span class="fila-nombre">
+              {{ datos.nombre }}
+              {% if numero in comprobantes_pendientes %}<span class="badge-pendiente">📎 pago</span>{% endif %}
+            </span>
+            <span class="fila-preview">{{ datos.ultimo_texto }}</span>
+          </span>
+        </a>
+      {% else %}
+        <p class="lista-vacia">Todavía no te escribió nadie. En cuanto llegue el primer mensaje, va a aparecer acá.</p>
+      {% endfor %}
+    </div>
   </div>
   <div class="chat">
     {% if numero_activo and conversaciones.get(numero_activo) %}
-      <div class="header">📱 {{ conversaciones[numero_activo].nombre }} ({{ numero_activo }})</div>
+      {% set datos = conversaciones[numero_activo] %}
+      <div class="chat-header">
+        <a href="/panel" class="volver">←</a>
+        <span class="avatar" style="background:{{ datos.color }};">{{ datos.inicial }}</span>
+        <span class="chat-header-info">
+          <span class="nombre">{{ datos.nombre }}</span><br>
+          <span class="numero">{{ numero_activo }}</span>
+        </span>
+      </div>
       {% if numero_activo in comprobantes_pendientes %}
         {% set comp = comprobantes_pendientes[numero_activo] %}
         <div class="comprobante">
-          📎 <strong>Comprobante pendiente de aprobación</strong> ({{ comp.fecha }})
+          <strong>📎 Comprobante pendiente de aprobación · {{ comp.fecha }}</strong>
           {% if comp.mime_type.startswith('image') %}
             <img src="/panel/media/{{ comp.id }}" alt="Comprobante">
           {% else %}
-            <br><a class="ver" href="/panel/media/{{ comp.id }}" target="_blank">📄 Ver archivo adjunto</a>
+            <a class="ver" href="/panel/media/{{ comp.id }}" target="_blank">📄 Ver archivo adjunto</a>
           {% endif %}
           <form method="POST" action="/panel/aprobar">
             <input type="hidden" name="numero" value="{{ numero_activo }}">
@@ -1038,22 +1214,36 @@ PANEL_HTML = """
         </div>
       {% endif %}
       <div class="mensajes">
-        {% for direccion, texto, fecha in conversaciones[numero_activo].mensajes %}
-          <div class="msg {{ 'entrante' if direccion == 'entrante' else 'saliente' }}">
-            {{ texto }}
-            <div class="fecha">{{ fecha }}</div>
-          </div>
+        {% for direccion, texto, fecha in datos.mensajes %}
+          {% if texto.startswith('[') and texto.endswith(']') %}
+            <div class="evento">{{ texto[1:-1] }} · {{ fecha }}</div>
+          {% else %}
+            <div class="fila-msg {{ 'saliente' if direccion == 'saliente' else '' }}">
+              <div class="msg {{ 'entrante' if direccion == 'entrante' else 'saliente' }}">
+                {{ texto }}
+                <div class="fecha">{{ fecha }}</div>
+              </div>
+            </div>
+          {% endif %}
         {% endfor %}
       </div>
       <form class="responder" method="POST" action="/panel/responder">
         <input type="hidden" name="numero" value="{{ numero_activo }}">
-        <input type="text" name="texto" placeholder="Escribí una respuesta..." required>
+        <input type="text" name="texto" placeholder="Escribí una respuesta..." required autocomplete="off">
         <button type="submit">Enviar</button>
       </form>
     {% else %}
-      <div class="header">Elegí una conversación de la izquierda</div>
+      <div class="chat-vacio">Elegí una conversación de la lista para ver los mensajes.</div>
     {% endif %}
   </div>
+  <script>
+    function filtrar() {
+      var q = document.getElementById('buscar').value.toLowerCase();
+      document.querySelectorAll('#lista-conversaciones .fila').forEach(function(fila) {
+        fila.style.display = fila.dataset.nombre.includes(q) ? '' : 'none';
+      });
+    }
+  </script>
 </body>
 </html>
 """
@@ -1095,6 +1285,11 @@ def panel():
 
     nombres = {numero: nombre for numero, nombre in contactos_filas if nombre}
 
+    # Paleta de colores para los avatares. Cada contacto siempre recibe el
+    # mismo color (calculado a partir de su número), para que sea fácil
+    # reconocerlo de un vistazo en la lista.
+    PALETA_AVATARES = ["#B85C38", "#3F6E71", "#6B5B95", "#4C7A4C", "#A8763E", "#48577A"]
+
     conversaciones = {}
     for numero, direccion, texto, fecha in filas:
         if numero not in conversaciones:
@@ -1102,13 +1297,26 @@ def panel():
             conversaciones[numero] = {
                 "nombre": nombre,
                 "inicial": nombre[0].upper() if nombre else "?",
+                "color": PALETA_AVATARES[sum(numero.encode()) % len(PALETA_AVATARES)],
                 "mensajes": [],
+                "ultimo_texto": "",
+                "ultima_fecha": "",
             }
         conversaciones[numero]["mensajes"].append((direccion, texto, fecha))
+        # Vista previa: mostramos el último mensaje real (no un evento entre
+        # corchetes, como "[Menú de packs enviado]"), para que la lista sea útil.
+        if not (texto.startswith("[") and texto.endswith("]")):
+            conversaciones[numero]["ultimo_texto"] = texto
+        conversaciones[numero]["ultima_fecha"] = fecha
+
+    # Ordenamos la lista de conversaciones por la más reciente primero.
+    conversaciones = dict(
+        sorted(conversaciones.items(), key=lambda item: item[1]["mensajes"][-1][2], reverse=True)
+    )
 
     numero_activo = request.args.get("numero")
     if not numero_activo and conversaciones:
-        numero_activo = list(conversaciones.keys())[-1]
+        numero_activo = list(conversaciones.keys())[0]
 
     comprobantes_pendientes = obtener_comprobantes_pendientes_por_numero()
 
