@@ -712,6 +712,74 @@ def manejar_texto(from_number, msg_body_lower):
     )
 
 
+def _enviar_flujo_compra(numero, clave):
+    """Manda toda la secuencia de compra (imagen + 3 mensajes + botón), con
+    una pausa corta entre cada uno para que no se sienta tan robótico/
+    instantáneo. Corre en un hilo aparte para no atrasar la respuesta del
+    webhook a Meta."""
+    producto = PRODUCTOS.get(clave)
+    if not producto:
+        return
+
+    PAUSA_ENTRE_MENSAJES = 5  # segundos
+
+    # La imagen del banner de oferta va PRIMERO que todo (sin caption: el
+    # texto va aparte, así si la imagen falla, los mensajes igual llegan).
+    imagen_oferta = producto.get("imagen_oferta")
+    if imagen_oferta:
+        enviar_imagen(numero, imagen_oferta)
+        time.sleep(PAUSA_ENTRE_MENSAJES)
+
+    # Mensaje 1: la oferta con la urgencia de 1 hora (precio de oferta,
+    # distinto del precio "normal" que se muestra en la ficha inicial).
+    precio_oferta = producto.get("precio_oferta", producto["precio"])
+    enviar_mensaje_texto(
+        numero,
+        "🔥 *¡Oferta imperdible por 1 hora!* 🔥\n\n"
+        f"El *{producto['titulo']}* completo, con los {len(producto['manuales'])} "
+        f"manuales técnicos, hoy te sale solo *{precio_oferta}*.\n\n"
+        "Esta promo vence en 1 hora, así que si te interesa, aprovechala ahora. 👇",
+    )
+    time.sleep(PAUSA_ENTRE_MENSAJES)
+
+    # Mensaje 2: la lista de los libros que incluye.
+    lineas_libros = [f"📚 *Esto es lo que te llevás:*\n"]
+    for i, manual in enumerate(producto["manuales"], start=1):
+        lineas_libros.append(f"{i}️⃣ {manual['titulo']} ({manual['autor']})")
+    enviar_mensaje_texto(numero, "\n".join(lineas_libros))
+    time.sleep(PAUSA_ENTRE_MENSAJES)
+
+    # Mensaje 3: los datos para transferir.
+    enviar_mensaje_texto(
+        numero,
+        "💸 *Podés abonar por transferencia o Lemon:*\n\n"
+        f"👉 *Alias:* `{DATOS_TRANSFERENCIA['alias']}`\n"
+        f"👉 *CVU:* `{DATOS_TRANSFERENCIA['cvu']}`\n"
+        f"👉 *Lemontag:* `{DATOS_TRANSFERENCIA['lemontag']}`\n"
+        f"👤 *Titular:* {DATOS_TRANSFERENCIA['titular']}\n\n"
+        "📩 Una vez realizado el pago, enviame el comprobante (foto o PDF) acá mismo "
+        "en el chat y te mando los manuales al instante.",
+    )
+    time.sleep(PAUSA_ENTRE_MENSAJES)
+
+    # Botón para que el cliente avise que ya pagó.
+    payload_ya_pague = {
+        "messaging_product": "whatsapp",
+        "to": numero,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": "Cuando termines de pagar, tocá el botón 👇"},
+            "action": {
+                "buttons": [
+                    {"type": "reply", "reply": {"id": f"ya_pague:{clave}", "title": "✅ Ya pagué"}},
+                ]
+            },
+        },
+    }
+    _enviar_interactivo(numero, payload_ya_pague, "Cuando termines de pagar, tocá el botón 👇")
+
+
 def manejar_boton(from_number, opcion_id):
     # Si tocó cualquier botón, ya no le mandamos el recordatorio automático
     # de "¿seguís pensando en comprar?" — está interactuando activamente.
@@ -730,58 +798,11 @@ def manejar_boton(from_number, opcion_id):
         enviar_botones_pack(from_number, clave, incluir_ver=False)
 
     elif accion == "comprar_pack" and clave in PRODUCTOS:
-        producto = PRODUCTOS[clave]
-
-        # Si hay una imagen de banner para la oferta, la mandamos primero
-        # (sin caption: el texto va aparte, así si la imagen falla, el
-        # mensaje de la oferta igual le llega al cliente).
-        imagen_oferta = producto.get("imagen_oferta")
-        if imagen_oferta:
-            enviar_imagen(from_number, imagen_oferta)
-
-        # Mensaje 1: la oferta con la urgencia de 1 hora.
-        enviar_mensaje_texto(
-            from_number,
-            "🔥 *¡Oferta imperdible por 1 hora!* 🔥\n\n"
-            f"El *{producto['titulo']}* completo, con los {len(producto['manuales'])} "
-            f"manuales técnicos, hoy te sale solo *{producto['precio']}*.\n\n"
-            "Esta promo vence en 1 hora, así que si te interesa, aprovechala ahora. 👇",
-        )
-
-        # Mensaje 2: la lista de los libros que incluye.
-        lineas_libros = [f"📚 *Esto es lo que te llevás:*\n"]
-        for i, manual in enumerate(producto["manuales"], start=1):
-            lineas_libros.append(f"{i}️⃣ {manual['titulo']} ({manual['autor']})")
-        enviar_mensaje_texto(from_number, "\n".join(lineas_libros))
-
-        # Mensaje 3: los datos para transferir.
-        enviar_mensaje_texto(
-            from_number,
-            "💸 *Podés abonar por transferencia o Lemon:*\n\n"
-            f"👉 *Alias:* `{DATOS_TRANSFERENCIA['alias']}`\n"
-            f"👉 *CVU:* `{DATOS_TRANSFERENCIA['cvu']}`\n"
-            f"👉 *Lemontag:* `{DATOS_TRANSFERENCIA['lemontag']}`\n"
-            f"👤 *Titular:* {DATOS_TRANSFERENCIA['titular']}\n\n"
-            "📩 Una vez realizado el pago, enviame el comprobante (foto o PDF) acá mismo "
-            "en el chat y te mando los manuales al instante.",
-        )
-
-        # Botón para que el cliente avise que ya pagó (le recordamos mandar el comprobante).
-        payload_ya_pague = {
-            "messaging_product": "whatsapp",
-            "to": from_number,
-            "type": "interactive",
-            "interactive": {
-                "type": "button",
-                "body": {"text": "Cuando termines de pagar, tocá el botón 👇"},
-                "action": {
-                    "buttons": [
-                        {"type": "reply", "reply": {"id": f"ya_pague:{clave}", "title": "✅ Ya pagué"}},
-                    ]
-                },
-            },
-        }
-        _enviar_interactivo(from_number, payload_ya_pague, "Cuando termines de pagar, tocá el botón 👇")
+        # Todo el flujo de compra corre en un hilo aparte, con pausas entre
+        # mensaje y mensaje (para que no se sienta tan robótico/instantáneo).
+        # Así el webhook le responde rápido a Meta, sin esperar a que se
+        # termine de mandar toda la secuencia.
+        threading.Thread(target=_enviar_flujo_compra, args=(from_number, clave), daemon=True).start()
 
     elif accion == "ya_pague" and clave in PRODUCTOS:
         enviar_mensaje_texto(
