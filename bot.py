@@ -26,6 +26,10 @@ DB_PATH = "mensajes.db"
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 
+# Número de respaldo al que el cliente puede escribir directamente con su
+# comprobante si ya pagó y no obtuvo respuesta a tiempo.
+NUMERO_RESPALDO = os.getenv("NUMERO_RESPALDO", "+54 9 11 5143-9788")
+
 
 # =====================================================================
 #  PRODUCTOS (packs) — agregá acá nuevos bloques y aparecen solos en el menú
@@ -145,10 +149,17 @@ def init_db():
         """
         CREATE TABLE IF NOT EXISTS contactos (
             numero TEXT PRIMARY KEY,
-            nombre TEXT
+            nombre TEXT,
+            modo_ia INTEGER NOT NULL DEFAULT 0
         )
         """
     )
+    # Si la tabla ya existía de antes (sin la columna modo_ia), la agregamos.
+    try:
+        conn.execute("ALTER TABLE contactos ADD COLUMN modo_ia INTEGER NOT NULL DEFAULT 0")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # la columna ya existe
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS comprobantes (
@@ -188,6 +199,37 @@ def guardar_contacto(numero, nombre):
     )
     conn.commit()
     conn.close()
+
+
+def activar_modo_ia(numero):
+    """Marca que este número está siendo atendido por la IA (después de tocar
+    'Hablar con asesor'), hasta que un humano le responda desde el panel."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        """
+        INSERT INTO contactos (numero, nombre, modo_ia) VALUES (?, NULL, 1)
+        ON CONFLICT(numero) DO UPDATE SET modo_ia = 1
+        """,
+        (numero,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def desactivar_modo_ia(numero):
+    """Saca a este número del modo IA (por ejemplo, cuando un humano le
+    responde manualmente desde el panel)."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("UPDATE contactos SET modo_ia = 0 WHERE numero = ?", (numero,))
+    conn.commit()
+    conn.close()
+
+
+def esta_en_modo_ia(numero):
+    conn = sqlite3.connect(DB_PATH)
+    fila = conn.execute("SELECT modo_ia FROM contactos WHERE numero = ?", (numero,)).fetchone()
+    conn.close()
+    return bool(fila and fila[0] == 1)
 
 
 def guardar_comprobante(numero, media_id, mime_type):
@@ -382,8 +424,27 @@ def manejar_entrada_desde_ads(from_number, referral, msg_body_lower=""):
     enviar_ficha_producto(from_number, clave)
 
 
+def _con_nota_respaldo(texto_ia):
+    """Agrega, al final de una respuesta de la IA, el aviso del número de
+    respaldo por si el cliente ya pagó y no recibió respuesta a tiempo."""
+    nota = (
+        "\n\n📌 *Importante:* si ya realizaste la compra y todavía no obtuviste "
+        f"respuesta, por favor escribí directamente a este número con tu "
+        f"comprobante: *{NUMERO_RESPALDO}*"
+    )
+    return f"{texto_ia}{nota}"
+
+
 def manejar_texto(from_number, msg_body_lower):
     msg_normalizado = _normalizar(msg_body_lower)
+
+    # 0) Si este número está en "modo IA" (tocó antes 'Hablar con asesor' y
+    #    todavía ningún humano le respondió desde el panel), dejamos que la
+    #    IA le conteste directamente lo que pregunte, en vez del flujo normal.
+    if esta_en_modo_ia(from_number):
+        respuesta_ia = generar_respuesta_ia(msg_body_lower)
+        enviar_mensaje_texto(from_number, _con_nota_respaldo(respuesta_ia))
+        return
 
     # 1) ¿El mensaje menciona un producto puntual (ej: "arquitectura y
     #    construcción")? Si es así, vamos DIRECTO a la ficha de ese
@@ -431,13 +492,39 @@ def manejar_boton(from_number, opcion_id):
             "📩 *Importante:* Una vez realizado el pago, envianos el comprobante por este medio "
             f"y te enviamos los {len(producto['manuales'])} manuales al instante.",
         )
+        # Botón para que el cliente avise que ya pagó (le recordamos mandar el comprobante).
+        payload_ya_pague = {
+            "messaging_product": "whatsapp",
+            "to": from_number,
+            "type": "interactive",
+            "interactive": {
+                "type": "button",
+                "body": {"text": "Cuando termines de pagar, tocá el botón 👇"},
+                "action": {
+                    "buttons": [
+                        {"type": "reply", "reply": {"id": f"ya_pague:{clave}", "title": "✅ Ya pagué"}},
+                    ]
+                },
+            },
+        }
+        _enviar_interactivo(from_number, payload_ya_pague, "Cuando termines de pagar, tocá el botón 👇")
 
-    elif accion == "hablar_vendedor":
+    elif accion == "ya_pague" and clave in PRODUCTOS:
         enviar_mensaje_texto(
             from_number,
-            "💬 Perfecto. En unos minutos un asesor humano te va a responder por este medio "
-            "para ayudarte con tus dudas. ¡Quedate atento!",
+            "📎 ¡Genial! Para confirmar tu compra, enviame ahora mismo la *foto o PDF* del "
+            "comprobante de pago acá mismo en el chat. En cuanto lo recibamos, te mandamos "
+            "los manuales completos. 🙌",
         )
+
+    elif accion == "hablar_vendedor":
+        activar_modo_ia(from_number)
+        respuesta_ia = generar_respuesta_ia(
+            "El cliente tocó el botón 'Hablar con asesor' porque tiene una duda. "
+            "Saludalo, decile que en breve un asesor humano lo va a atender, y "
+            "preguntale en qué le podés ayudar mientras tanto."
+        )
+        enviar_mensaje_texto(from_number, _con_nota_respaldo(respuesta_ia))
     else:
         enviar_menu_productos(from_number)
 
@@ -887,6 +974,7 @@ def panel_aprobar():
     comprobante_id = request.form.get("comprobante_id")
     if numero and comprobante_id:
         marcar_comprobante_aprobado(comprobante_id)
+        desactivar_modo_ia(numero)  # ya lo atendió un humano al aprobar el pago
         enviar_manuales_completos(numero)
     return redirect(f"/panel?numero={numero}")
 
@@ -898,6 +986,7 @@ def panel_responder():
     numero = request.form.get("numero")
     texto = request.form.get("texto", "").strip()
     if numero and texto:
+        desactivar_modo_ia(numero)  # ya lo está atendiendo un humano
         enviar_mensaje_texto(numero, texto)
     return redirect(f"/panel?numero={numero}")
 
