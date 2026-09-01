@@ -304,12 +304,42 @@ def _escapar_html(texto):
     )
 
 
+# ---------------------------------------------------------------------
+# Respuestas rápidas: botones que aparecen debajo de CADA notificación de
+# Telegram. Al tocar uno, se le manda ese texto al cliente por WhatsApp al
+# instante, sin tener que escribir nada. Para agregar/cambiar una, solo
+# hay que editar este diccionario (la clave, tipo "q1", es interna).
+# ---------------------------------------------------------------------
+RESPUESTAS_RAPIDAS = {
+    "q1": ("✅ Ya enviamos", "¡Listo! Ya te enviamos los manuales, cualquier duda escribinos."),
+    "q2": ("📸 Reenviar comprobante", "¿Podés reenviar el comprobante? No lo pudimos ver bien."),
+    "q3": ("⏳ Dame minutos", "Dame unos minutos que ya te atiendo."),
+    "q4": ("🙏 Gracias compra", "¡Gracias por tu compra! Cualquier consulta, escribí."),
+}
+
+
+def _teclado_respuestas_rapidas(numero):
+    """Arma el teclado de botones con las respuestas rápidas, 2 por fila,
+    con el número de WhatsApp metido en el callback_data para saber a
+    quién mandarle la respuesta cuando toquen un botón."""
+    claves = list(RESPUESTAS_RAPIDAS.keys())
+    filas = []
+    for i in range(0, len(claves), 2):
+        fila = []
+        for clave in claves[i:i + 2]:
+            titulo_boton, _ = RESPUESTAS_RAPIDAS[clave]
+            fila.append({"text": titulo_boton, "callback_data": f"{clave}:{numero}"})
+        filas.append(fila)
+    return {"inline_keyboard": filas}
+
+
 def enviar_notificacion_telegram(numero, resumen_texto):
     """Le avisa al dueño del negocio por Telegram que llegó un mensaje nuevo,
     con un formato prolijo (nombre, número, hora, y el mensaje entre
-    comillas). Si más adelante responde a ESE mensaje de Telegram (con la
-    función 'responder' de Telegram), el bot sabe a qué número de WhatsApp
-    reenviarle la respuesta (ver /telegram_webhook)."""
+    comillas), más los botones de respuesta rápida. Si en vez de tocar un
+    botón responde a ESE mensaje de Telegram (con la función 'responder'),
+    el bot también sabe a qué número de WhatsApp reenviarle esa respuesta
+    (ver /telegram_webhook)."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return  # Telegram no está configurado, no hacemos nada
     try:
@@ -330,7 +360,8 @@ def enviar_notificacion_telegram(numero, resumen_texto):
             f"\n"
             f"<i>“{_escapar_html(resumen_texto)}”</i>\n"
             f"\n"
-            f"↩️ <i>Respondé a este mensaje para contestarle por WhatsApp.</i>"
+            f"↩️ <i>Respondé a este mensaje para contestarle por WhatsApp, "
+            f"o tocá un botón de respuesta rápida.</i>"
         )
 
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -338,6 +369,7 @@ def enviar_notificacion_telegram(numero, resumen_texto):
             "chat_id": TELEGRAM_CHAT_ID,
             "text": texto_formateado,
             "parse_mode": "HTML",
+            "reply_markup": _teclado_respuestas_rapidas(numero),
         }
         resp = requests.post(url, json=payload, timeout=10)
         if resp.status_code >= 400:
@@ -624,6 +656,35 @@ def telegram_webhook():
     directo a ese cliente por WhatsApp."""
     try:
         data = request.json or {}
+
+        # --- Botones de respuesta rápida (llegan como "callback_query", no
+        #     como un mensaje normal) ---
+        callback = data.get("callback_query")
+        if callback:
+            callback_id = callback.get("id")
+            callback_data = callback.get("data", "")
+            clave, _, numero = callback_data.partition(":")
+
+            texto_a_enviar = None
+            if clave in RESPUESTAS_RAPIDAS and numero:
+                _, texto_a_enviar = RESPUESTAS_RAPIDAS[clave]
+                desactivar_modo_ia(numero)
+                cancelar_recordatorio(numero)
+                enviar_mensaje_texto(numero, texto_a_enviar)
+
+            # Hay que "contestarle" a Telegram el callback, si no el botón
+            # se queda cargando (girando) en la app del usuario.
+            if TELEGRAM_BOT_TOKEN and callback_id:
+                requests.post(
+                    f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery",
+                    json={
+                        "callback_query_id": callback_id,
+                        "text": "Enviado ✅" if texto_a_enviar else "No se pudo enviar",
+                    },
+                    timeout=10,
+                )
+            return jsonify({"status": "callback_procesado"}), 200
+
         mensaje_telegram = data.get("message") or data.get("edited_message")
         if not mensaje_telegram:
             return jsonify({"status": "ignorado"}), 200
