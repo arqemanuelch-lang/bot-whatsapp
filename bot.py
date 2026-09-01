@@ -130,15 +130,20 @@ def programar_recordatorio_compra(numero, clave):
 
     def _recordatorio_largo():
         RECORDATORIOS_PENDIENTES_LARGO.pop(numero, None)
+
+        # Mismo chequeo de seguridad que _armar_recordatorio: si la persona
+        # interactuó hace muy poquito, no la molestamos.
+        ultima = ULTIMA_INTERACCION.get(numero, 0)
+        if time.time() - ultima < 10:
+            return
+
         producto = PRODUCTOS.get(clave)
         if not producto:
             return
-        _armar_recordatorio(
-            numero, clave,
-            f"⏰ Todavía te estamos guardando el *{producto['titulo']}* a "
-            f"*{producto['precio']}*. Si tenés alguna duda antes de decidirte, "
-            "tocá 'Hablar con asesor' y te ayudamos al toque. 👇",
-        )
+
+        # A la hora, sin haber tocado nada, le mandamos la secuencia completa
+        # con la oferta especial (imagen + $5.500 + libros + datos de pago).
+        _enviar_flujo_compra(numero, clave)
 
     timer_corto = threading.Timer(SEGUNDOS_RECORDATORIO_CORTO, _recordatorio_corto)
     timer_corto.daemon = True
@@ -798,11 +803,37 @@ def manejar_boton(from_number, opcion_id):
         enviar_botones_pack(from_number, clave, incluir_ver=False)
 
     elif accion == "comprar_pack" and clave in PRODUCTOS:
-        # Todo el flujo de compra corre en un hilo aparte, con pausas entre
-        # mensaje y mensaje (para que no se sienta tan robótico/instantáneo).
-        # Así el webhook le responde rápido a Meta, sin esperar a que se
-        # termine de mandar toda la secuencia.
-        threading.Thread(target=_enviar_flujo_compra, args=(from_number, clave), daemon=True).start()
+        producto = PRODUCTOS[clave]
+        # Al tocar el botón, mensaje directo y simple con los datos de pago
+        # (precio normal). La secuencia más elaborada con la oferta e imagen
+        # queda reservada para el recordatorio automático de 1 hora, si la
+        # persona no compra en ese tiempo (ver programar_recordatorio_compra).
+        enviar_mensaje_texto(
+            from_number,
+            "🎉 ¡Excelente decisión! Podés abonar por transferencia o Lemon:\n\n"
+            f"👉 *Alias:* `{DATOS_TRANSFERENCIA['alias']}`\n"
+            f"👉 *CVU:* `{DATOS_TRANSFERENCIA['cvu']}`\n"
+            f"👉 *Lemontag:* `{DATOS_TRANSFERENCIA['lemontag']}`\n"
+            f"👤 *Titular:* {DATOS_TRANSFERENCIA['titular']}\n\n"
+            f"💰 *Total:* {producto['precio']}\n\n"
+            "📩 Una vez realizado el pago, enviame el comprobante (foto o PDF) acá mismo "
+            f"y te mando los {len(producto['manuales'])} manuales al instante.",
+        )
+        payload_ya_pague = {
+            "messaging_product": "whatsapp",
+            "to": from_number,
+            "type": "interactive",
+            "interactive": {
+                "type": "button",
+                "body": {"text": "Cuando termines de pagar, tocá el botón 👇"},
+                "action": {
+                    "buttons": [
+                        {"type": "reply", "reply": {"id": f"ya_pague:{clave}", "title": "✅ Ya pagué"}},
+                    ]
+                },
+            },
+        }
+        _enviar_interactivo(from_number, payload_ya_pague, "Cuando termines de pagar, tocá el botón 👇")
 
     elif accion == "ya_pague" and clave in PRODUCTOS:
         enviar_mensaje_texto(
