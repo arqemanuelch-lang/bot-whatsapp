@@ -86,6 +86,7 @@ PRODUCTOS = {
         "descripcion_corta": "8 manuales técnicos en PDF",
         "precio": "$8.000",
         "link_pago": "https://mpago.la/17uyqFK",
+        "imagen": "https://drive.google.com/uc?export=view&id=1bjZuLQdxksNIDgRxeMyYBdP06Go_OlGO",
         "manuales": [
             {"titulo": "Cómo se proyecta una Vivienda", "autor": "J.L. Moia",
              "link": "https://drive.google.com/file/d/12MHAHdQZ7Bm7RTBTD1SVdd0XxDXNO54L/view?usp=sharing"},
@@ -615,7 +616,10 @@ def enviar_menu_productos(to):
 
 def enviar_ficha_producto(to, clave):
     """Se muestra cuando el usuario elige un pack de la lista principal,
-    o cuando se detecta el producto directamente por texto/anuncio."""
+    o cuando se detecta el producto directamente por texto/anuncio.
+    Si el producto tiene una imagen de portada configurada, se manda
+    primero la imagen con el texto como descripción (caption), y después
+    los botones para elegir qué hacer."""
     producto = PRODUCTOS[clave]
     texto = (
         f"📦 *{producto['titulo']}*\n"
@@ -623,10 +627,32 @@ def enviar_ficha_producto(to, clave):
         f"💰 *Precio:* {producto['precio']}\n\n"
         "¿Qué te gustaría hacer?"
     )
-    enviar_botones_pack(to, clave, texto=texto, incluir_ver=True)
+
+    imagen_url = producto.get("imagen")
+    if imagen_url:
+        enviar_imagen(to, imagen_url, caption=texto)
+        enviar_botones_pack(to, clave, texto="👆 Elegí una opción:", incluir_ver=True)
+    else:
+        enviar_botones_pack(to, clave, texto=texto, incluir_ver=True)
 
     # Si en 3 minutos no toca ningún botón, le mandamos un recordatorio.
     programar_recordatorio_compra(to, clave)
+
+
+def enviar_imagen(to, imagen_url, caption=""):
+    url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "image",
+        "image": {"link": imagen_url, "caption": caption},
+    }
+    _post_a_meta(url, headers, payload)
+    guardar_mensaje(to, "saliente", f"[Imagen enviada] {caption}")
 
 
 def enviar_botones_pack(to, clave, texto="¿Cómo querés avanzar?", incluir_ver=False):
