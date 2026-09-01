@@ -282,24 +282,62 @@ def obtener_numero_por_mensaje_telegram(telegram_message_id):
     return fila[0] if fila else None
 
 
+def obtener_nombre_contacto(numero):
+    """Devuelve el nombre guardado del contacto, o el número si no hay
+    nombre disponible (por ejemplo, si todavía no mandó su perfil)."""
+    conn = sqlite3.connect(DB_PATH)
+    fila = conn.execute("SELECT nombre FROM contactos WHERE numero = ?", (numero,)).fetchone()
+    conn.close()
+    if fila and fila[0]:
+        return fila[0]
+    return numero
+
+
+def _escapar_html(texto):
+    """Escapa los caracteres especiales de HTML para que Telegram no rompa
+    el formato si el mensaje del cliente trae &, < o >."""
+    return (
+        str(texto)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
 def enviar_notificacion_telegram(numero, resumen_texto):
-    """Le avisa al dueño del negocio por Telegram que llegó un mensaje nuevo.
-    Si más adelante responde a ESE mensaje de Telegram (con la función
-    'responder' de Telegram), el bot sabe a qué número de WhatsApp
+    """Le avisa al dueño del negocio por Telegram que llegó un mensaje nuevo,
+    con un formato prolijo (nombre, número, hora, y el mensaje entre
+    comillas). Si más adelante responde a ESE mensaje de Telegram (con la
+    función 'responder' de Telegram), el bot sabe a qué número de WhatsApp
     reenviarle la respuesta (ver /telegram_webhook)."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return  # Telegram no está configurado, no hacemos nada
     try:
+        nombre = obtener_nombre_contacto(numero)
+        hora = datetime.utcnow().strftime("%H:%M")
+
+        # Si el nombre y el número son distintos, mostramos los dos; si no
+        # hay nombre guardado, mostramos solo el número.
+        if nombre != numero:
+            encabezado = f"👤 <b>{_escapar_html(nombre)}</b>  ·  <code>{_escapar_html(numero)}</code>"
+        else:
+            encabezado = f"👤 <b>{_escapar_html(numero)}</b>"
+
+        texto_formateado = (
+            f"📲 <b>WhatsApp — {_escapar_html(NOMBRE_NEGOCIO)}</b>\n"
+            f"{encabezado}\n"
+            f"🕒 {hora}\n"
+            f"\n"
+            f"<i>“{_escapar_html(resumen_texto)}”</i>\n"
+            f"\n"
+            f"↩️ <i>Respondé a este mensaje para contestarle por WhatsApp.</i>"
+        )
+
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         payload = {
             "chat_id": TELEGRAM_CHAT_ID,
-            "text": (
-                f"📩 *Nuevo mensaje de {numero}*\n\n"
-                f"{resumen_texto}\n\n"
-                "↩️ Respondé a este mensaje (mantené presionado y elegí 'Responder') "
-                "para contestarle directo por WhatsApp."
-            ),
-            "parse_mode": "Markdown",
+            "text": texto_formateado,
+            "parse_mode": "HTML",
         }
         resp = requests.post(url, json=payload, timeout=10)
         if resp.status_code >= 400:
