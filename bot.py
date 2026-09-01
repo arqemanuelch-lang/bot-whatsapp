@@ -86,7 +86,7 @@ PRODUCTOS = {
         "descripcion_corta": "8 manuales técnicos en PDF",
         "precio": "$8.000",
         "link_pago": "https://mpago.la/17uyqFK",
-        "imagen": "https://drive.usercontent.google.com/download?id=1bjZuLQdxksNIDgRxeMyYBdP06Go_OlGO&export=download",
+        "imagen": "https://i.ibb.co/R40sSbHt/Sin-t-tulo-1080-1920-px-1080-x-1080-px-1080-x-1920-px-1080-x-1350-px-1.png",
         "manuales": [
             {"titulo": "Cómo se proyecta una Vivienda", "autor": "J.L. Moia",
              "link": "https://drive.google.com/file/d/12MHAHdQZ7Bm7RTBTD1SVdd0XxDXNO54L/view?usp=sharing"},
