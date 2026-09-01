@@ -93,6 +93,7 @@ PRODUCTOS = {
         "precio": "$5.500",
         "link_pago": "https://mpago.la/17uyqFK",
         "imagen": "https://i.ibb.co/R40sSbHt/Sin-t-tulo-1080-1920-px-1080-x-1080-px-1080-x-1920-px-1080-x-1350-px-1.png",
+        "imagen_oferta": "https://i.ibb.co/Z6NnT3sx/115829a6-72a0-425d-90d4-ba7ec17fcd78.jpg",
         "manuales": [
             {"titulo": "Cómo se proyecta una Vivienda", "autor": "J.L. Moia",
              "link": "https://drive.google.com/file/d/12MHAHdQZ7Bm7RTBTD1SVdd0XxDXNO54L/view?usp=sharing"},
