@@ -86,32 +86,23 @@ PRODUCTOS = {
         "descripcion_corta": "8 manuales técnicos en PDF",
         "precio": "$8.000",
         "link_pago": "https://mpago.la/17uyqFK",
-        "imagen": "https://drive.google.com/uc?export=view&id=1TREha1W6E_F7f_CC3h_PqiMk0CIHpGv5",
         "manuales": [
             {"titulo": "Cómo se proyecta una Vivienda", "autor": "J.L. Moia",
-             "link": "https://drive.google.com/file/d/12MHAHdQZ7Bm7RTBTD1SVdd0XxDXNO54L/view?usp=sharing",
-             "portada": "https://drive.google.com/uc?export=view&id=1TdxnVCTXitaqHhySC_eC1C50lM4PY96s"},
+             "link": "https://drive.google.com/file/d/12MHAHdQZ7Bm7RTBTD1SVdd0XxDXNO54L/view?usp=sharing"},
             {"titulo": "Curso básico de instalaciones eléctricas", "autor": "Calloni Rodrigues",
-             "link": "https://drive.google.com/file/d/1XTeI93qPpw0BT2J0l7qhiY_MJKd1iXHD/view?usp=sharing",
-             "portada": "https://drive.google.com/uc?export=view&id=1AyIjxtVkh9r_8u000WFco3ZS52ylGOXQ"},
+             "link": "https://drive.google.com/file/d/1XTeI93qPpw0BT2J0l7qhiY_MJKd1iXHD/view?usp=sharing"},
             {"titulo": "Instalaciones Eléctricas Monofásicas", "autor": "Ing. César Anibal Rey",
-             "link": "https://drive.google.com/file/d/19TKBsowVtj4Q0w5OSOaZ7AeS7aBEs_Kw/view?usp=sharing",
-             "portada": "https://drive.google.com/uc?export=view&id=1R8Dh0v98CD50XWpp7Q46L3ZLXTBaYU6N"},
+             "link": "https://drive.google.com/file/d/19TKBsowVtj4Q0w5OSOaZ7AeS7aBEs_Kw/view?usp=sharing"},
             {"titulo": "Manual para el Técnico Instalador Electricista Domiciliario", "autor": "Levy",
-             "link": "https://drive.google.com/file/d/19TKBsowVtj4Q0w5OSOaZ7AeS7aBEs_Kw/view?usp=sharing",
-             "portada": "https://drive.google.com/uc?export=view&id=15954BBRDTvf1TA09_W6YRl5h6e3rXN_n"},
+             "link": "https://drive.google.com/file/d/19TKBsowVtj4Q0w5OSOaZ7AeS7aBEs_Kw/view?usp=sharing"},
             {"titulo": "Manual Práctico de la Construcción", "autor": "Jaime Nisnovich",
-             "link": "https://drive.google.com/file/d/1kKYvLhGcKLHqmit32kLVuiX3swnBGKGv/view?usp=sharing",
-             "portada": "https://drive.google.com/uc?export=view&id=1TREha1W6E_F7f_CC3h_PqiMk0CIHpGv5"},
+             "link": "https://drive.google.com/file/d/1kKYvLhGcKLHqmit32kLVuiX3swnBGKGv/view?usp=sharing"},
             {"titulo": "Manual Práctico de Instalaciones Sanitarias: Tomo 1", "autor": "Nisnovich, Castro, Lázaro",
-             "link": "https://drive.google.com/file/d/1oHuKcqXp2SFBAyYSbmqByJFjyn7i7yuY/view?usp=sharing",
-             "portada": "https://drive.google.com/uc?export=view&id=13xrKMOOKzhDr-9rmHesNH4Q_fIcWfYk7"},
+             "link": "https://drive.google.com/file/d/1oHuKcqXp2SFBAyYSbmqByJFjyn7i7yuY/view?usp=sharing"},
             {"titulo": "Manual Práctico de Instalaciones Sanitarias: Tomo 2", "autor": "Nisnovich, Castro, Lázaro",
-             "link": "https://drive.google.com/file/d/1dQQC9-GfUjkS-GTAfzL8x1_G4A15k1GO/view?usp=sharing",
-             "portada": "https://drive.google.com/uc?export=view&id=1sqyz9QOvsGMIKzX8XivTGcqfWnMzGyCH"},
+             "link": "https://drive.google.com/file/d/1dQQC9-GfUjkS-GTAfzL8x1_G4A15k1GO/view?usp=sharing"},
             {"titulo": "Manual Práctico para Proyectar Buenas Viviendas", "autor": "Jaime Nisnovich",
-             "link": "https://drive.google.com/file/d/1_YZf_GexbX-nE-PK4fBWlv05Ygu1iVw5/view?usp=sharing",
-             "portada": "https://drive.google.com/uc?export=view&id=1zuYVNub4yUOPAtAyyZQuLk5g81E6LhYH"},
+             "link": "https://drive.google.com/file/d/1_YZf_GexbX-nE-PK4fBWlv05Ygu1iVw5/view?usp=sharing"},
         ],
     },
     # Ejemplo de cómo se vería un segundo pack (descomentalo y completalo cuando lo tengas):
@@ -534,7 +525,7 @@ def manejar_boton(from_number, opcion_id):
         enviar_ficha_producto(from_number, clave)
 
     elif accion == "ver_resena" and clave in PRODUCTOS:
-        enviar_resena_con_portadas(from_number, clave)
+        enviar_mensaje_texto(from_number, _texto_detalle_manuales(clave))
         enviar_botones_pack(from_number, clave, incluir_ver=False)
 
     elif accion == "comprar_pack" and clave in PRODUCTOS:
@@ -624,10 +615,7 @@ def enviar_menu_productos(to):
 
 def enviar_ficha_producto(to, clave):
     """Se muestra cuando el usuario elige un pack de la lista principal,
-    o cuando se detecta el producto directamente por texto/anuncio.
-    Si el producto tiene una imagen de portada configurada, se manda
-    primero la imagen con el texto como descripción (caption), y después
-    los botones para elegir qué hacer."""
+    o cuando se detecta el producto directamente por texto/anuncio."""
     producto = PRODUCTOS[clave]
     texto = (
         f"📦 *{producto['titulo']}*\n"
@@ -635,32 +623,10 @@ def enviar_ficha_producto(to, clave):
         f"💰 *Precio:* {producto['precio']}\n\n"
         "¿Qué te gustaría hacer?"
     )
-
-    imagen_url = producto.get("imagen")
-    if imagen_url:
-        enviar_imagen(to, imagen_url, caption=texto)
-        enviar_botones_pack(to, clave, texto="👆 Elegí una opción:", incluir_ver=True)
-    else:
-        enviar_botones_pack(to, clave, texto=texto, incluir_ver=True)
+    enviar_botones_pack(to, clave, texto=texto, incluir_ver=True)
 
     # Si en 3 minutos no toca ningún botón, le mandamos un recordatorio.
     programar_recordatorio_compra(to, clave)
-
-
-def enviar_imagen(to, imagen_url, caption=""):
-    url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
-    headers = {
-        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "type": "image",
-        "image": {"link": imagen_url, "caption": caption},
-    }
-    _post_a_meta(url, headers, payload)
-    guardar_mensaje(to, "saliente", f"[Imagen enviada] {caption}")
 
 
 def enviar_botones_pack(to, clave, texto="¿Cómo querés avanzar?", incluir_ver=False):
@@ -683,24 +649,13 @@ def enviar_botones_pack(to, clave, texto="¿Cómo querés avanzar?", incluir_ver
     _enviar_interactivo(to, payload, texto)
 
 
-def enviar_resena_con_portadas(to, clave):
-    """Manda una imagen por cada manual del pack (portada + título/autor como
-    descripción), en vez de un solo mensaje de texto con links. Si a algún
-    manual todavía no le cargamos la portada (campo 'portada' vacío), para
-    ese en particular mandamos su título/autor como texto simple, para no
-    dejarlo afuera de la lista."""
+def _texto_detalle_manuales(clave):
     producto = PRODUCTOS[clave]
-    enviar_mensaje_texto(to, f"📖 *Esto es lo que incluye el {producto['titulo']}:*")
-
+    lineas = [f"📖 *Contenido del {producto['titulo']}*:\n"]
     for i, manual in enumerate(producto["manuales"], start=1):
-        caption = f"{i}️⃣ *{manual['titulo']}*\n✍️ {manual['autor']}"
-        portada = manual.get("portada")
-        if portada:
-            enviar_imagen(to, portada, caption=caption)
-        else:
-            enviar_mensaje_texto(to, caption)
-
-    enviar_mensaje_texto(to, f"💰 *Precio promocional:* {producto['precio']}")
+        lineas.append(f"{i}️⃣ *{manual['titulo']}* ({manual['autor']})\n👉 *[Ver adelanto]*: {manual['link']}\n")
+    lineas.append(f"💰 *Precio promocional:* {producto['precio']}")
+    return "\n".join(lineas)
 
 
 def _enviar_interactivo(to, payload, texto_para_guardar):
