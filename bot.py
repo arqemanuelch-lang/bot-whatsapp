@@ -3,6 +3,7 @@ import hmac
 import hashlib
 import sqlite3
 import threading
+import time
 import unicodedata
 import requests
 from datetime import datetime
@@ -35,6 +36,15 @@ DB_PATH = "mensajes.db"
 # =====================================================================
 SEGUNDOS_RECORDATORIO = 180  # 3 minutos
 RECORDATORIOS_PENDIENTES = {}  # numero -> threading.Timer
+ULTIMA_INTERACCION = {}  # numero -> timestamp (time.time()) de la última acción del usuario
+
+
+def marcar_interaccion(numero):
+    """Registra que este número acaba de interactuar (mandó un mensaje o tocó
+    un botón). Se usa para evitar que el recordatorio de 3 minutos se dispare
+    justo en el instante en que la persona ya está actuando (carrera de
+    tiempos entre 'cancelar el aviso' y 'el aviso ya se estaba mandando')."""
+    ULTIMA_INTERACCION[numero] = time.time()
 
 
 def cancelar_recordatorio(numero):
@@ -50,6 +60,14 @@ def programar_recordatorio_compra(numero, clave, delay_segundos=SEGUNDOS_RECORDA
 
     def _enviar_recordatorio():
         RECORDATORIOS_PENDIENTES.pop(numero, None)
+
+        # Si la persona interactuó hace muy poquito (pudo haber tocado un
+        # botón justo en el instante en que este aviso ya se estaba
+        # disparando), no lo mandamos: ya está activa en la conversación.
+        ultima = ULTIMA_INTERACCION.get(numero, 0)
+        if time.time() - ultima < 10:
+            return
+
         producto = PRODUCTOS.get(clave)
         if not producto:
             return
@@ -519,38 +537,47 @@ def _con_nota_respaldo(texto_ia):
 
 
 def manejar_texto(from_number, msg_body_lower):
+    marcar_interaccion(from_number)
     msg_normalizado = _normalizar(msg_body_lower)
 
-    # 0) Si este número está en "modo IA" (tocó antes 'Hablar con asesor' y
-    #    todavía ningún humano le respondió desde el panel), dejamos que la
-    #    IA le conteste directamente lo que pregunte, en vez del flujo normal.
+    # 0) ¿El mensaje menciona un producto puntual (ej: "arquitectura y
+    #    construcción")? Si es así, vamos DIRECTO a la ficha de ese
+    #    producto, sin pasar por la lista general NI por el modo IA.
+    #    Esto tiene prioridad siempre, aunque el número haya quedado en
+    #    "modo IA" por haber tocado antes 'Hablar con asesor'.
+    clave_producto = detectar_producto_por_texto(msg_normalizado)
+    if clave_producto:
+        desactivar_modo_ia(from_number)  # ya no hace falta que la IA lo atienda
+        enviar_ficha_producto(from_number, clave_producto)
+        return
+
+    # 1) Si no menciona ningún producto puntual, pero sí un saludo genérico
+    #    ("hola", "informacion", etc.) -> mandamos el menú con todos los packs.
+    #    También tiene prioridad sobre el modo IA.
+    if any(palabra in msg_normalizado for palabra in PALABRAS_ACTIVADORAS):
+        desactivar_modo_ia(from_number)
+        enviar_menu_productos(from_number)
+        return
+
+    # 2) Si este número está en "modo IA" (tocó antes 'Hablar con asesor' y
+    #    todavía ningún humano le respondió desde el panel), y el mensaje no
+    #    coincidió con nada de lo anterior, dejamos que la IA le conteste.
     if esta_en_modo_ia(from_number):
         respuesta_ia = generar_respuesta_ia(msg_body_lower)
         enviar_mensaje_texto(from_number, _con_nota_respaldo(respuesta_ia))
         return
 
-    # 1) ¿El mensaje menciona un producto puntual (ej: "arquitectura y
-    #    construcción")? Si es así, vamos DIRECTO a la ficha de ese
-    #    producto, sin pasar por la lista general.
-    clave_producto = detectar_producto_por_texto(msg_normalizado)
-    if clave_producto:
-        enviar_ficha_producto(from_number, clave_producto)
-        return
-
-    # 2) Si no menciona ningún producto puntual, pero sí un saludo genérico
-    #    ("hola", "informacion", etc.) -> mandamos el menú con todos los packs.
-    if any(palabra in msg_normalizado for palabra in PALABRAS_ACTIVADORAS):
-        enviar_menu_productos(from_number)
-    else:
-        enviar_mensaje_texto(
-            from_number,
-            "No entendí tu mensaje 🤔. Escribí *DROPLY* para ver nuestros packs disponibles.",
-        )
+    # 3) No coincidió con nada conocido y no está en modo IA.
+    enviar_mensaje_texto(
+        from_number,
+        "No entendí tu mensaje 🤔. Escribí *DROPLY* para ver nuestros packs disponibles.",
+    )
 
 
 def manejar_boton(from_number, opcion_id):
     # Si tocó cualquier botón, ya no le mandamos el recordatorio automático
     # de "¿seguís pensando en comprar?" — está interactuando activamente.
+    marcar_interaccion(from_number)
     cancelar_recordatorio(from_number)
 
     # Los ids vienen con el formato "accion:clave_producto" (ej: "ver_resena:kit_maestro").
@@ -717,7 +744,7 @@ def _texto_detalle_manuales(clave):
     producto = PRODUCTOS[clave]
     lineas = [f"📖 *Contenido del {producto['titulo']}*:\n"]
     for i, manual in enumerate(producto["manuales"], start=1):
-        lineas.append(f"{i}️⃣ *{manual['titulo']}* ({manual['autor']})\n👉 *[Ver adelanto]*: {manual['link']}\n")
+        lineas.append(f"{i}️⃣ *{manual['titulo']}* ({manual['autor']})\n👉 *Ver adelanto:* {manual['link']}\n")
     lineas.append(f"💰 *Precio promocional:* {producto['precio']}")
     return "\n".join(lineas)
 
