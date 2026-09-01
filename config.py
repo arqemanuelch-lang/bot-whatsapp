@@ -90,7 +90,7 @@ PRODUCTOS = {
     "kit_maestro": {
         "titulo": "Kit Maestro de Arquitectura y Construcción",
         "descripcion_corta": "8 manuales técnicos en PDF",
-        "precio": "$8.000",
+        "precio": "$5.500",
         "link_pago": "https://mpago.la/17uyqFK",
         "imagen": "https://i.ibb.co/R40sSbHt/Sin-t-tulo-1080-1920-px-1080-x-1080-px-1080-x-1920-px-1080-x-1350-px-1.png",
         "manuales": [
