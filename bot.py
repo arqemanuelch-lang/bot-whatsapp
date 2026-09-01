@@ -69,6 +69,63 @@ PRODUCTOS = {
 
 
 # =====================================================================
+#  ⭐ PALABRAS CLAVE POR PRODUCTO ⭐
+#  ----------------------------------------------------------------
+#  ACÁ ES DONDE TENÉS QUE EDITAR CUANDO QUIERAS CAMBIAR O AGREGAR PALABRAS.
+#
+#  Esto sirve para 2 casos:
+#   1) Cuando alguien entra desde un anuncio de Facebook/Instagram (el texto
+#      pre-cargado del anuncio, ej: "Hola, quiero más información sobre el
+#      pack arquitectura y construcción").
+#   2) Cuando alguien escribe directamente ese mismo tipo de frase sin venir
+#      de un anuncio (por ejemplo, si reenvía el mensaje a otra persona, o
+#      lo escribe él mismo).
+#
+#  En ambos casos, si el texto contiene alguna de estas palabras, el bot
+#  manda DIRECTO la ficha de ESE producto (no la lista completa).
+#
+#  Reglas simples:
+#   - La clave (a la izquierda, ej: "kit_maestro") tiene que ser EXACTAMENTE
+#     igual a la clave que usaste arriba en PRODUCTOS.
+#   - Podés poner tantas palabras/frases como quieras por producto.
+#   - No hace falta poner tildes ni mayúsculas: el sistema las ignora
+#     (compara todo en minúsculas y sin tildes).
+#   - Cuando agregues un producto nuevo en PRODUCTOS, agregá acá también su
+#     lista de palabras clave, si no, ese producto nunca se va a detectar
+#     por texto y siempre caerá en la lista general.
+# =====================================================================
+PALABRAS_POR_PRODUCTO = {
+    "kit_maestro": [
+        "arquitectura",
+        "construccion",
+        "kit maestro",
+        "pack arquitectura",
+        "manuales de construccion",
+        "arquitectura y construccion",
+    ],
+    # Ejemplo para cuando agregues el segundo pack (descomentalo y completalo):
+    # "kit_electricidad": [
+    #     "electricidad",
+    #     "instalaciones electricas",
+    #     "kit electricidad",
+    # ],
+}
+
+
+def detectar_producto_por_texto(texto_normalizado):
+    """Busca si el texto (ya pasado por _normalizar) menciona algún producto
+    puntual, usando PALABRAS_POR_PRODUCTO. Devuelve la clave del producto
+    encontrado, o None si no matchea ninguno."""
+    for clave, palabras in PALABRAS_POR_PRODUCTO.items():
+        if clave not in PRODUCTOS:
+            continue  # por si quedó una clave vieja sin su producto correspondiente
+        for palabra in palabras:
+            if _normalizar(palabra) in texto_normalizado:
+                return clave
+    return None
+
+
+# =====================================================================
 #  Base de datos (SQLite)
 # =====================================================================
 def init_db():
@@ -226,7 +283,7 @@ def receive_message():
                 # (Click to WhatsApp). Meta manda este dato en 'referral' sin
                 # importar qué haya escrito, así que respondemos automático
                 # sí o sí, independientemente de las palabras activadoras.
-                manejar_entrada_desde_ads(from_number, referral)
+                manejar_entrada_desde_ads(from_number, referral, msg_body.lower())
             else:
                 manejar_texto(from_number, msg_body.lower())
 
@@ -293,30 +350,50 @@ PALABRAS_ACTIVADORAS = [
 ]
 
 
-def manejar_entrada_desde_ads(from_number, referral):
+def manejar_entrada_desde_ads(from_number, referral, msg_body_lower=""):
     """Se dispara automáticamente cuando alguien te escribe tocando un anuncio
     de Facebook o Instagram (Click to WhatsApp), sin importar qué haya
     escrito. 'referral' trae datos del anuncio: headline, source_type
     ('ad' o 'post'), source_url, media_type, etc.
 
     A diferencia del saludo genérico, acá NO mandamos la lista para elegir
-    pack: la persona ya clickeó un anuncio de un pack puntual, así que va
-    directo a la ficha con Comprar / Ver qué incluye / Hablar con asesor.
+    pack: la persona ya clickeó un anuncio (o escribió el texto pre-cargado
+    de un anuncio), así que va directo a la ficha del producto correspondiente.
+
+    Para saber CUÁL producto, primero miramos el texto del propio mensaje
+    (el que escribió/mandó la persona) y también el headline/body que venga
+    en 'referral'. Si ninguno matchea ningún producto puntual, usamos
+    "kit_maestro" como default (útil mientras solo tengas un pack).
     """
     titulo_anuncio = referral.get("headline") or referral.get("source_type") or "anuncio"
     guardar_mensaje(from_number, "entrante", f"[Entró desde Facebook/Instagram: {titulo_anuncio}]")
 
-    # TODO: cuando tengas más de un pack, mapeá el anuncio (por ejemplo por
-    # referral.get("source_id") o por el texto de referral.get("headline"))
-    # a la clave de PRODUCTOS que corresponda. Por ahora, con un solo pack,
-    # siempre mandamos "kit_maestro".
-    clave = "kit_maestro"
+    texto_completo = " ".join(
+        [
+            msg_body_lower or "",
+            referral.get("headline", "") or "",
+            referral.get("body", "") or "",
+        ]
+    )
+    texto_normalizado = _normalizar(texto_completo)
+
+    clave = detectar_producto_por_texto(texto_normalizado) or "kit_maestro"
     enviar_ficha_producto(from_number, clave)
 
 
 def manejar_texto(from_number, msg_body_lower):
     msg_normalizado = _normalizar(msg_body_lower)
 
+    # 1) ¿El mensaje menciona un producto puntual (ej: "arquitectura y
+    #    construcción")? Si es así, vamos DIRECTO a la ficha de ese
+    #    producto, sin pasar por la lista general.
+    clave_producto = detectar_producto_por_texto(msg_normalizado)
+    if clave_producto:
+        enviar_ficha_producto(from_number, clave_producto)
+        return
+
+    # 2) Si no menciona ningún producto puntual, pero sí un saludo genérico
+    #    ("hola", "informacion", etc.) -> mandamos el menú con todos los packs.
     if any(palabra in msg_normalizado for palabra in PALABRAS_ACTIVADORAS):
         enviar_menu_productos(from_number)
     else:
@@ -398,7 +475,8 @@ def enviar_menu_productos(to):
 
 
 def enviar_ficha_producto(to, clave):
-    """Se muestra cuando el usuario elige un pack de la lista principal."""
+    """Se muestra cuando el usuario elige un pack de la lista principal,
+    o cuando se detecta el producto directamente por texto/anuncio."""
     producto = PRODUCTOS[clave]
     texto = (
         f"📦 *{producto['titulo']}*\n"
