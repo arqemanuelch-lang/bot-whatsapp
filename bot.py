@@ -86,7 +86,7 @@ PRODUCTOS = {
         "descripcion_corta": "8 manuales técnicos en PDF",
         "precio": "$8.000",
         "link_pago": "https://mpago.la/17uyqFK",
-        "imagen": "https://drive.google.com/uc?export=view&id=1bjZuLQdxksNIDgRxeMyYBdP06Go_OlGO",
+        "imagen": "https://drive.usercontent.google.com/download?id=1bjZuLQdxksNIDgRxeMyYBdP06Go_OlGO&export=download",
         "manuales": [
             {"titulo": "Cómo se proyecta una Vivienda", "autor": "J.L. Moia",
              "link": "https://drive.google.com/file/d/12MHAHdQZ7Bm7RTBTD1SVdd0XxDXNO54L/view?usp=sharing"},
@@ -624,10 +624,12 @@ def enviar_ficha_producto(to, clave):
     toda la información del producto."""
     producto = PRODUCTOS[clave]
     texto = (
-        f"📦 *{producto['titulo']}*\n"
-        f"{producto['descripcion_corta']}\n\n"
-        f"💰 *Precio:* {producto['precio']}\n\n"
-        "¿Qué te gustaría hacer?"
+        f"¡Hola! 👋 Gracias por tu interés en nuestro *{producto['titulo']}* 🏗️\n\n"
+        f"Son {producto['descripcion_corta']}, pensados para que tengas todo lo que "
+        "necesitás en un solo lugar: desde los primeros planos hasta instalaciones "
+        "eléctricas y sanitarias. 📐📚\n\n"
+        f"💰 *Precio promocional:* {producto['precio']}\n\n"
+        "¿Cómo te gustaría seguir? 👇"
     )
 
     imagen_url = producto.get("imagen")
