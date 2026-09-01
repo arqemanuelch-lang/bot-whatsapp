@@ -39,7 +39,7 @@ PRODUCTOS = {
         "titulo": "Kit Maestro de Arquitectura y Construcción",
         "descripcion_corta": "8 manuales técnicos en PDF",
         "precio": "$8.000",
-        "link_pago": "https://mpago.la/TU-LINK-DE-PAGO",
+        "link_pago": "https://mpago.la/17uyqFK",
         "manuales": [
             {"titulo": "Cómo se proyecta una Vivienda", "autor": "J.L. Moia",
              "link": "https://drive.google.com/file/d/12MHAHdQZ7Bm7RTBTD1SVdd0XxDXNO54L/view?usp=sharing"},
