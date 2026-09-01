@@ -617,9 +617,11 @@ def enviar_menu_productos(to):
 def enviar_ficha_producto(to, clave):
     """Se muestra cuando el usuario elige un pack de la lista principal,
     o cuando se detecta el producto directamente por texto/anuncio.
-    Si el producto tiene una imagen de portada configurada, se manda
-    primero la imagen con el texto como descripción (caption), y después
-    los botones para elegir qué hacer."""
+    El texto descriptivo SIEMPRE se manda (con los botones), y si el
+    producto tiene una imagen de portada configurada, se manda ADEMÁS
+    esa imagen por separado. Así, si el link de la imagen falla (algo
+    que puede pasar con links de Google Drive), el cliente igual recibe
+    toda la información del producto."""
     producto = PRODUCTOS[clave]
     texto = (
         f"📦 *{producto['titulo']}*\n"
@@ -630,10 +632,9 @@ def enviar_ficha_producto(to, clave):
 
     imagen_url = producto.get("imagen")
     if imagen_url:
-        enviar_imagen(to, imagen_url, caption=texto)
-        enviar_botones_pack(to, clave, texto="👆 Elegí una opción:", incluir_ver=True)
-    else:
-        enviar_botones_pack(to, clave, texto=texto, incluir_ver=True)
+        enviar_imagen(to, imagen_url)  # imagen sin caption, es solo un extra visual
+
+    enviar_botones_pack(to, clave, texto=texto, incluir_ver=True)
 
     # Si en 3 minutos no toca ningún botón, le mandamos un recordatorio.
     programar_recordatorio_compra(to, clave)
