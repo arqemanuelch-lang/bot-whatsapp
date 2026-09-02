@@ -26,6 +26,9 @@ from config import (
     PALABRAS_ACTIVADORAS,
     PRODUCTOS,
     PALABRAS_POR_PRODUCTO,
+    FRASES_VER_QUE_INCLUYE,
+    FRASES_COMPRAR,
+    FRASES_ASESOR,
 )
 
 app = Flask(__name__)
@@ -801,6 +804,25 @@ def manejar_texto(from_number, msg_body_lower):
         enviar_menu_productos(from_number)
         return
 
+    # 1.5) Red de contención para gente que no toca los botones y escribe
+    #      directamente lo que quiere ("quiero comprar", "que incluye",
+    #      "hablar con alguien"). Si matchea alguna de estas frases, hacemos
+    #      LO MISMO que si hubiera tocado el botón correspondiente.
+    #      (Usa el primer producto configurado, pensado para cuando hay un
+    #      solo producto activo; si en el futuro hay varios, esto habría que
+    #      afinarlo para saber de cuál está hablando.)
+    if PRODUCTOS:
+        clave_default = next(iter(PRODUCTOS))
+        if any(frase in msg_normalizado for frase in FRASES_COMPRAR):
+            manejar_boton(from_number, f"comprar_pack:{clave_default}")
+            return
+        if any(frase in msg_normalizado for frase in FRASES_VER_QUE_INCLUYE):
+            manejar_boton(from_number, f"ver_resena:{clave_default}")
+            return
+        if any(frase in msg_normalizado for frase in FRASES_ASESOR):
+            manejar_boton(from_number, "hablar_vendedor")
+            return
+
     # 2) Si este número está en "modo IA" (tocó antes 'Hablar con asesor' y
     #    todavía ningún humano le respondió desde el panel), y el mensaje no
     #    coincidió con nada de lo anterior, dejamos que la IA le conteste.
@@ -903,10 +925,11 @@ def manejar_boton(from_number, opcion_id):
 
     elif accion == "comprar_pack" and clave in PRODUCTOS:
         producto = PRODUCTOS[clave]
-        # Al tocar el botón, mensaje directo y simple con los datos de pago
-        # (precio normal). La secuencia más elaborada con la oferta e imagen
-        # queda reservada para el recordatorio automático de 1 hora, si la
-        # persona no compra en ese tiempo (ver programar_recordatorio_compra).
+
+        # Mensaje directo y simple con los datos de pago (precio normal),
+        # sin imagen. La secuencia con imagen/banner queda reservada para
+        # el recordatorio automático de 1 hora, si la persona no compra en
+        # ese tiempo (ver programar_recordatorio_compra).
         enviar_mensaje_texto(
             from_number,
             "🎉 ¡Excelente decisión! Podés abonar por transferencia o Lemon:\n\n"
@@ -916,7 +939,9 @@ def manejar_boton(from_number, opcion_id):
             f"👤 *Titular:* {DATOS_TRANSFERENCIA['titular']}\n\n"
             f"💰 *Total:* {producto['precio']}\n\n"
             "📩 Una vez realizado el pago, enviame el comprobante (foto o PDF) acá mismo "
-            f"y te mando los {len(producto['manuales'])} manuales al instante.",
+            f"y te mando los {len(producto['manuales'])} manuales al instante.\n\n"
+            f"📌 Si tenés cualquier inconveniente, escribime directo a mi número "
+            f"personal: *{NUMERO_RESPALDO}*",
         )
         payload_ya_pague = {
             "messaging_product": "whatsapp",
@@ -987,29 +1012,53 @@ def enviar_menu_productos(to):
 def enviar_ficha_producto(to, clave):
     """Se muestra cuando el usuario elige un pack de la lista principal,
     o cuando se detecta el producto directamente por texto/anuncio.
-    El texto descriptivo SIEMPRE se manda (con los botones), y si el
-    producto tiene una imagen de portada configurada, se manda ADEMÁS
-    esa imagen por separado. Así, si el link de la imagen falla (algo
-    que puede pasar con links de Google Drive), el cliente igual recibe
-    toda la información del producto."""
-    producto = PRODUCTOS[clave]
-    texto = (
-        f"¡Hola! 👋 Gracias por tu interés en nuestro *{producto['titulo']}* 🏗️\n\n"
-        f"Son {producto['descripcion_corta']}, pensados para que tengas todo lo que "
-        "necesitás en un solo lugar: desde los primeros planos hasta instalaciones "
-        "eléctricas y sanitarias. 📐📚\n\n"
-        f"💰 *Precio promocional:* {producto['precio']}\n\n"
-        "¿Cómo te gustaría seguir? 👇"
-    )
+    En vez de un mensaje con botones, manda una secuencia de mensajes de
+    texto (imagen + saludo + contenido + instrucción para comprar), con
+    pausas cortas entre cada uno para que no se sienta tan robótico.
+    Corre en un hilo aparte para no atrasar la respuesta del webhook."""
+    threading.Thread(target=_enviar_secuencia_ficha, args=(to, clave), daemon=True).start()
 
+
+def _enviar_secuencia_ficha(to, clave):
+    producto = PRODUCTOS.get(clave)
+    if not producto:
+        return
+
+    PAUSA = 4  # segundos entre mensaje y mensaje
+
+    # La imagen de portada (si hay) va primero, sin caption.
     imagen_url = producto.get("imagen")
     if imagen_url:
-        enviar_imagen(to, imagen_url)  # imagen sin caption, es solo un extra visual
+        enviar_imagen(to, imagen_url)
+        time.sleep(PAUSA)
 
-    enviar_botones_pack(to, clave, texto=texto, incluir_ver=True)
+    # Mensaje 1: saludo, agradeciendo el interés.
+    enviar_mensaje_texto(
+        to,
+        f"¡Hola! 👋 Gracias por tu interés en nuestro *{producto['titulo']}* 🏗️\n\n"
+        "¡Excelente elección! Te cuento todo lo que incluye.",
+    )
+    time.sleep(PAUSA)
 
-    # Si en 3 minutos no toca ningún botón, le mandamos un recordatorio.
+    # Mensaje 2: lo que incluye (los manuales, uno por línea).
+    lineas = [f"📚 *Esto es lo que te llevás:*\n"]
+    for i, manual in enumerate(producto["manuales"], start=1):
+        lineas.append(f"{i}️⃣ {manual['titulo']} ({manual['autor']})")
+    enviar_mensaje_texto(to, "\n".join(lineas))
+    time.sleep(PAUSA)
+
+    # Mensaje 3: precio + instrucción para comprar escribiendo "ALIAS".
+    enviar_mensaje_texto(
+        to,
+        f"💰 *Precio:* {producto['precio']}\n\n"
+        "Si querés adquirir el pack, escribí *ALIAS* y te paso todos los datos "
+        "para transferir. 👇",
+    )
+
+    # Si en 3 minutos / 1 hora no escribe nada más, le mandamos un recordatorio.
     programar_recordatorio_compra(to, clave)
+
+
 
 
 def enviar_imagen(to, imagen_url, caption=""):
