@@ -83,6 +83,49 @@ PALABRAS_ACTIVADORAS = [
 
 
 # ---------------------------------------------------------------------
+# 4.1) FRASES DE ACCIÓN EN TEXTO LIBRE
+#      ----------------------------------------------------------------
+#      Mucha gente no toca los botones interactivos de WhatsApp y en
+#      cambio escribe directamente lo que quiere. Estas listas funcionan
+#      como una red de contención: si el mensaje contiene alguna de estas
+#      frases, el bot hace LO MISMO que si hubiera tocado el botón
+#      correspondiente (Ver qué incluye / Comprar / Hablar con asesor),
+#      sin necesidad de que use los botones.
+# ---------------------------------------------------------------------
+FRASES_VER_QUE_INCLUYE = [
+    "que incluye",
+    "que trae",
+    "los libros",
+    "el contenido",
+    "que tiene el pack",
+    "los manuales",
+    "que manuales son",
+]
+
+FRASES_COMPRAR = [
+    "comprar",
+    "quiero comprar",
+    "como pago",
+    "como hago para pagar",
+    "cuanto sale",
+    "el precio",
+    "quiero pagar",
+    "quiero adquirir",
+    "como lo compro",
+    "alias",
+]
+
+FRASES_ASESOR = [
+    "hablar con un asesor",
+    "hablar con alguien",
+    "hablar con una persona",
+    "hablar con un humano",
+    "atencion al cliente",
+    "quiero hablar con alguien",
+]
+
+
+# ---------------------------------------------------------------------
 # 5) PRODUCTOS (packs) — agregá acá nuevos bloques y aparecen solos en
 #    el menú del bot.
 # ---------------------------------------------------------------------
@@ -90,7 +133,7 @@ PRODUCTOS = {
     "kit_maestro": {
         "titulo": "Kit Maestro de Arquitectura y Construcción",
         "descripcion_corta": "8 manuales técnicos en PDF",
-        "precio": "$8.000",
+        "precio": "$5.500",
         "precio_oferta": "$5.500",
         "link_pago": "https://mpago.la/17uyqFK",
         "imagen": "https://i.ibb.co/R40sSbHt/Sin-t-tulo-1080-1920-px-1080-x-1080-px-1080-x-1920-px-1080-x-1350-px-1.png",
