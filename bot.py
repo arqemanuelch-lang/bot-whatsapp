@@ -1,6 +1,6 @@
 import os
 import hmac
-import hashlib 
+import hashlib
 import sqlite3
 import threading
 import time
@@ -1026,8 +1026,9 @@ def _enviar_secuencia_ficha(to, clave):
 
     PAUSA = 4  # segundos entre mensaje y mensaje
 
-    # La imagen de portada (si hay) va primero, sin caption.
-    imagen_url = producto.get("imagen")
+    # La imagen del banner de oferta va primero, sin caption (si no está
+    # configurada, usamos la imagen general como respaldo).
+    imagen_url = producto.get("imagen_oferta") or producto.get("imagen")
     if imagen_url:
         enviar_imagen(to, imagen_url)
         time.sleep(PAUSA)
@@ -1040,10 +1041,12 @@ def _enviar_secuencia_ficha(to, clave):
     )
     time.sleep(PAUSA)
 
-    # Mensaje 2: lo que incluye (los manuales, uno por línea).
+    # Mensaje 2: lo que incluye (los manuales, con su link de adelanto,
+    # separados con un espacio para que se distinga bien uno de otro).
     lineas = [f"📚 *Esto es lo que te llevás:*\n"]
     for i, manual in enumerate(producto["manuales"], start=1):
-        lineas.append(f"{i}️⃣ {manual['titulo']} ({manual['autor']})")
+        lineas.append(f"{i}️⃣ *{manual['titulo']}* ({manual['autor']})")
+        lineas.append(f"👉 {manual['link']}\n")
     enviar_mensaje_texto(to, "\n".join(lineas))
     time.sleep(PAUSA)
 
