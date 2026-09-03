@@ -45,6 +45,11 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")  # opcional: respaldo gratuito si Gemin
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")  # el token que te da @BotFather
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")  # tu chat_id personal de Telegram
 TELEGRAM_WEBHOOK_URL = os.getenv("TELEGRAM_WEBHOOK_URL")  # ej: https://tu-app.onrender.com/telegram_webhook
+
+# --- Mercado Pago (pago automático, opcional) ---
+MP_ACCESS_TOKEN = os.getenv("MP_ACCESS_TOKEN")
+# BASE_URL: la URL pública de tu bot en Render, ej: https://bot-whatsapp-ojza.onrender.com (sin / al final)
+BASE_URL = os.getenv("BASE_URL")
 PANEL_PASSWORD = os.getenv("PANEL_PASSWORD", "cambiar_esta_clave")
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "cambiar_esta_clave_tambien")
 
@@ -241,8 +246,33 @@ def init_db():
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pagos_mp_procesados (
+            payment_id TEXT PRIMARY KEY,
+            fecha TEXT NOT NULL
+        )
+        """
+    )
     conn.commit()
     conn.close()
+
+
+def pago_mp_ya_procesado(payment_id):
+    """Evita procesar el mismo pago de Mercado Pago dos veces (por si
+    llega el mismo aviso repetido)."""
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute(
+            "INSERT INTO pagos_mp_procesados (payment_id, fecha) VALUES (?, ?)",
+            (str(payment_id), datetime.utcnow().strftime("%d/%m %H:%M:%S")),
+        )
+        conn.commit()
+        return False  # se pudo insertar => es la primera vez que lo vemos
+    except sqlite3.IntegrityError:
+        return True  # ya existía => es un duplicado
+    finally:
+        conn.close()
 
 
 def ya_fue_procesado(message_id):
@@ -309,30 +339,28 @@ def _escapar_html(texto):
 
 # ---------------------------------------------------------------------
 # Respuestas rápidas: botones que aparecen debajo de CADA notificación de
-# Telegram. Al tocar uno, se le manda ese texto al cliente por WhatsApp al
-# instante, sin tener que escribir nada. Para agregar/cambiar una, solo
-# hay que editar este diccionario (la clave, tipo "q1", es interna).
+# Telegram.
+#  - "📱 Hablar personalmente" es un botón de LINK: abre tu WhatsApp
+#    personal con el chat de ese cliente ya armado (wa.me), para que le
+#    escribas vos directo desde tu celu, sin pasar por el bot.
+#  - "💬 Otra cosa" es una respuesta rápida: al tocarla, se le manda ese
+#    texto al cliente por WhatsApp (a través del bot) al instante.
+# Para agregar más respuestas rápidas de texto, se agregan acá abajo (la
+# clave, tipo "otra", es interna).
 # ---------------------------------------------------------------------
 RESPUESTAS_RAPIDAS = {
-    "q1": ("✅ Ya enviamos", "¡Listo! Ya te enviamos los manuales, cualquier duda escribinos."),
-    "q2": ("📸 Reenviar comprobante", "¿Podés reenviar el comprobante? No lo pudimos ver bien."),
-    "q3": ("⏳ Dame minutos", "Dame unos minutos que ya te atiendo."),
-    "q4": ("🙏 Gracias compra", "¡Gracias por tu compra! Cualquier consulta, escribí."),
+    "otra": ("💬 Otra cosa", "Gracias por tu mensaje, ya te respondo."),
 }
 
 
 def _teclado_respuestas_rapidas(numero):
-    """Arma el teclado de botones con las respuestas rápidas, 2 por fila,
-    con el número de WhatsApp metido en el callback_data para saber a
-    quién mandarle la respuesta cuando toquen un botón."""
-    claves = list(RESPUESTAS_RAPIDAS.keys())
-    filas = []
-    for i in range(0, len(claves), 2):
-        fila = []
-        for clave in claves[i:i + 2]:
-            titulo_boton, _ = RESPUESTAS_RAPIDAS[clave]
-            fila.append({"text": titulo_boton, "callback_data": f"{clave}:{numero}"})
-        filas.append(fila)
+    """Arma el teclado de Telegram: primero el botón de link para hablar
+    personalmente por WhatsApp, y abajo las respuestas rápidas de texto."""
+    filas = [
+        [{"text": "📱 Hablar personalmente", "url": f"https://wa.me/{numero}"}],
+    ]
+    for clave, (titulo_boton, _) in RESPUESTAS_RAPIDAS.items():
+        filas.append([{"text": titulo_boton, "callback_data": f"{clave}:{numero}"}])
     return {"inline_keyboard": filas}
 
 
@@ -728,6 +756,43 @@ def telegram_webhook():
     return jsonify({"status": "ok"}), 200
 
 
+@app.route("/webhook/mercadopago", methods=["POST", "GET"])
+def mercadopago_webhook():
+    """Mercado Pago avisa acá cada vez que hay novedades de un pago. Si el
+    pago está aprobado y todavía no lo procesamos, le mandamos los
+    manuales al cliente automáticamente, sin que nadie tenga que aprobar
+    nada a mano."""
+    if not MP_ACCESS_TOKEN:
+        return jsonify({"status": "mercadopago_no_configurado"}), 200
+
+    # Mercado Pago puede mandar el aviso como JSON en el body, o como query
+    # params, según cómo esté configurada la cuenta. Contemplamos las dos.
+    data = request.get_json(silent=True) or {}
+    payment_id = (data.get("data") or {}).get("id") or request.args.get("data.id") or request.args.get("id")
+
+    if not payment_id:
+        return jsonify({"status": "ignorado"}), 200
+
+    try:
+        resp = requests.get(
+            f"https://api.mercadopago.com/v1/payments/{payment_id}",
+            headers={"Authorization": f"Bearer {MP_ACCESS_TOKEN}"},
+            timeout=15,
+        )
+        pago = resp.json()
+    except Exception as e:
+        print("Error consultando el pago en Mercado Pago:", repr(e))
+        return jsonify({"status": "error"}), 200
+
+    if pago.get("status") == "approved" and not pago_mp_ya_procesado(payment_id):
+        external_reference = pago.get("external_reference", "")
+        if "|" in external_reference:
+            numero, clave = external_reference.split("|", 1)
+            confirmar_pago_automatico_mp(numero, clave)
+
+    return jsonify({"status": "ok"}), 200
+
+
 # =====================================================================
 #  Lógica del Bot (Kit Maestro)
 # =====================================================================
@@ -926,20 +991,39 @@ def manejar_boton(from_number, opcion_id):
     elif accion == "comprar_pack" and clave in PRODUCTOS:
         producto = PRODUCTOS[clave]
 
+        # Si Mercado Pago está configurado, generamos un link de pago único
+        # para este cliente. Es una opción ADEMÁS de la transferencia, no en
+        # vez de ella: si paga por acá, el bot le manda los manuales solo,
+        # sin que nadie tenga que aprobar nada a mano.
+        link_mp = crear_preferencia_pago(from_number, clave)
+        seccion_mp = ""
+        cierre_mp = ""
+        if link_mp:
+            seccion_mp = (
+                "💳 *Pago con Mercado Pago (acreditación automática):*\n"
+                f"{link_mp}\n\n"
+            )
+            cierre_mp = " Si pagás por Mercado Pago, te los mando automático apenas se acredite. ✅"
+
         # Mensaje directo y simple con los datos de pago (precio normal),
         # sin imagen. La secuencia con imagen/banner queda reservada para
         # el recordatorio automático de 1 hora, si la persona no compra en
         # ese tiempo (ver programar_recordatorio_compra).
         enviar_mensaje_texto(
             from_number,
-            "🎉 ¡Excelente decisión! Podés abonar por transferencia o Lemon:\n\n"
-            f"👉 *Alias:* `{DATOS_TRANSFERENCIA['alias']}`\n"
-            f"👉 *CVU:* `{DATOS_TRANSFERENCIA['cvu']}`\n"
-            f"👉 *Lemontag:* `{DATOS_TRANSFERENCIA['lemontag']}`\n"
-            f"👤 *Titular:* {DATOS_TRANSFERENCIA['titular']}\n\n"
+            "🎉 ¡Excelente decisión! Podés abonar por "
+            + ("cualquiera de estas dos opciones" if link_mp else "transferencia o Lemon")
+            + ":\n\n"
+            f"{seccion_mp}"
+            "👉 *Transferencia o Lemon:*\n"
+            f"*Alias:* `{DATOS_TRANSFERENCIA['alias']}`\n"
+            f"*CVU:* `{DATOS_TRANSFERENCIA['cvu']}`\n"
+            f"*Lemontag:* `{DATOS_TRANSFERENCIA['lemontag']}`\n"
+            f"*Titular:* {DATOS_TRANSFERENCIA['titular']}\n\n"
             f"💰 *Total:* {producto['precio']}\n\n"
-            "📩 Una vez realizado el pago, enviame el comprobante (foto o PDF) acá mismo "
-            f"y te mando los {len(producto['manuales'])} manuales al instante.\n\n"
+            "📩 Si pagás por transferencia, enviame el comprobante (foto o PDF) acá mismo "
+            f"y te mando los {len(producto['manuales'])} manuales al instante."
+            f"{cierre_mp}\n\n"
             f"📌 Si tenés cualquier inconveniente, escribime directo a mi número "
             f"personal: *{NUMERO_RESPALDO}*",
         )
@@ -1140,6 +1224,67 @@ def enviar_manuales_completos(to, clave="kit_maestro"):
         lineas.append(f"{i}️⃣ *{manual['titulo']}* ({manual['autor']})\n👉 {manual['link']}\n")
     lineas.append("¡Gracias por tu compra! 🙌")
     enviar_mensaje_texto(to, "\n".join(lineas))
+
+
+# =====================================================================
+#  Mercado Pago — pago automático (opcional)
+#  ----------------------------------------------------------------
+#  Esto es una opción ADICIONAL a la transferencia por alias: el cliente
+#  puede pagar con Mercado Pago y, apenas se acredita, el bot le manda los
+#  manuales solo, sin que nadie tenga que aprobar nada a mano. Si no
+#  configurás MP_ACCESS_TOKEN y BASE_URL, esta parte simplemente no se usa
+#  y todo sigue funcionando con la transferencia por alias como siempre.
+# =====================================================================
+def crear_preferencia_pago(numero, clave):
+    """Genera un link de pago único de Mercado Pago para este cliente y
+    este producto. Devuelve el link, o None si algo falla."""
+    if not MP_ACCESS_TOKEN or not BASE_URL:
+        return None
+    producto = PRODUCTOS.get(clave)
+    if not producto:
+        return None
+
+    url = "https://api.mercadopago.com/checkout/preferences"
+    headers = {
+        "Authorization": f"Bearer {MP_ACCESS_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "items": [
+            {
+                "title": producto["titulo"],
+                "quantity": 1,
+                "unit_price": float(producto.get("precio_valor", 0)),
+                "currency_id": "ARS",
+            }
+        ],
+        # external_reference es la clave: acá "marcamos" de quién y de qué
+        # producto es este pago, para reconocerlo cuando llegue la
+        # confirmación en /webhook/mercadopago.
+        "external_reference": f"{numero}|{clave}",
+        "notification_url": f"{BASE_URL}/webhook/mercadopago",
+    }
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("init_point")
+    except Exception as e:
+        print("Error creando preferencia de Mercado Pago:", repr(e))
+        return None
+
+
+def confirmar_pago_automatico_mp(numero, clave):
+    """Se llama cuando Mercado Pago confirma que un pago fue aprobado. Le
+    manda los manuales directo, sin necesitar aprobación manual, y avisa
+    por Telegram para que quede registrado."""
+    desactivar_modo_ia(numero)
+    cancelar_recordatorio(numero)
+    enviar_manuales_completos(numero, clave)
+    enviar_notificacion_telegram(
+        numero,
+        "💳 Pago automático confirmado por Mercado Pago. Los manuales ya se le mandaron solos, no hace falta que hagas nada.",
+    )
 
 
 def obtener_media_de_meta(media_id):
