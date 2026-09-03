@@ -84,6 +84,7 @@ SEGUNDOS_RECORDATORIO_LARGO = float(os.getenv("SEGUNDOS_RECORDATORIO_LARGO", "36
 RECORDATORIOS_PENDIENTES = {}  # numero -> threading.Timer (el de 3 minutos)
 RECORDATORIOS_PENDIENTES_LARGO = {}  # numero -> threading.Timer (el de 1 hora)
 ULTIMA_INTERACCION = {}  # numero -> timestamp (time.time()) de la última acción del usuario
+PRODUCTO_ACTUAL = {}  # numero -> clave del último producto que le mostramos (para "alias", "que incluye", etc.)
 
 
 def marcar_interaccion(numero):
@@ -129,11 +130,14 @@ def programar_recordatorio_compra(numero, clave):
         producto = PRODUCTOS.get(clave)
         if not producto:
             return
+        cantidad_m = len(producto["manuales"])
+        completo_s = "completo" if cantidad_m == 1 else "completos"
+        listo_s = "listo" if cantidad_m == 1 else "listos"
         _armar_recordatorio(
             numero, clave,
             f"👋 ¿Seguís pensando en el *{producto['titulo']}*?\n\n"
             f"Te lo dejamos por solo *{producto['precio']}*: "
-            f"{len(producto['manuales'])} manuales técnicos completos, listos para descargar. 📚\n\n"
+            f"{_texto_cantidad_manuales(producto)} {completo_s}, {listo_s} para descargar. 📚\n\n"
             "Cuando quieras avanzar, tocá el botón de abajo 👇",
         )
 
@@ -360,9 +364,9 @@ CATEGORIAS_RESPUESTAS = {
     "producto": {
         "titulo": "📦 Producto",
         "opciones": {
-            "prod1": ("📚 Qué incluye", "El pack incluye 8 manuales técnicos completos de arquitectura y construcción, en PDF."),
-            "prod2": ("💵 Precio", "El Kit Maestro cuesta $5.500, con los 8 manuales completos."),
-            "prod3": ("🕐 Cuándo llega", "Apenas confirmemos tu pago, te mando los manuales al instante por acá mismo."),
+            "prod1": ("📚 Qué incluye", "Te paso el detalle de qué incluye en un toque, dame un segundo."),
+            "prod2": ("💵 Precio", "El precio depende del pack — contame cuál te interesa y te confirmo."),
+            "prod3": ("🕐 Cuándo llega", "Apenas confirmemos tu pago, te mando el archivo al instante por acá mismo."),
         },
     },
     "otro": {
@@ -955,6 +959,13 @@ def mercadopago_webhook():
 # =====================================================================
 #  Lógica del Bot (Kit Maestro)
 # =====================================================================
+def _texto_cantidad_manuales(producto):
+    """Devuelve 'el manual' si el pack tiene uno solo, o 'los N manuales'
+    si tiene varios (para que los mensajes se lean bien en los dos casos)."""
+    cantidad = len(producto.get("manuales", []))
+    return "el manual" if cantidad == 1 else f"los {cantidad} manuales"
+
+
 def _normalizar(texto):
     """Pasa a minúsculas y saca tildes, para que 'información' e 'informacion' matcheen igual."""
     texto = texto.strip().lower()
@@ -1037,12 +1048,11 @@ def manejar_texto(from_number, msg_body_lower):
     # 1.5) Red de contención para gente que no toca los botones y escribe
     #      directamente lo que quiere ("quiero comprar", "que incluye",
     #      "hablar con alguien"). Si matchea alguna de estas frases, hacemos
-    #      LO MISMO que si hubiera tocado el botón correspondiente.
-    #      (Usa el primer producto configurado, pensado para cuando hay un
-    #      solo producto activo; si en el futuro hay varios, esto habría que
-    #      afinarlo para saber de cuál está hablando.)
+    #      LO MISMO que si hubiera tocado el botón correspondiente, sobre el
+    #      ÚLTIMO producto que le mostramos a este número (o el primero
+    #      configurado, si todavía no le mostramos ninguno).
     if PRODUCTOS:
-        clave_default = next(iter(PRODUCTOS))
+        clave_default = PRODUCTO_ACTUAL.get(from_number, next(iter(PRODUCTOS)))
         if any(frase in msg_normalizado for frase in FRASES_COMPRAR):
             manejar_boton(from_number, f"comprar_pack:{clave_default}")
             return
@@ -1089,11 +1099,13 @@ def _enviar_flujo_compra(numero, clave):
     # Mensaje 1: la oferta con la urgencia de 1 hora (precio de oferta,
     # distinto del precio "normal" que se muestra en la ficha inicial).
     precio_oferta = producto.get("precio_oferta", producto["precio"])
+    cantidad_m1 = len(producto["manuales"])
+    tecnico_s = "técnico" if cantidad_m1 == 1 else "técnicos"
     enviar_mensaje_texto(
         numero,
         "🔥 *¡Oferta imperdible por 1 hora!* 🔥\n\n"
-        f"El *{producto['titulo']}* completo, con los {len(producto['manuales'])} "
-        f"manuales técnicos, hoy te sale solo *{precio_oferta}*.\n\n"
+        f"El *{producto['titulo']}* completo, con {_texto_cantidad_manuales(producto)} "
+        f"{tecnico_s}, hoy te sale solo *{precio_oferta}*.\n\n"
         "Esta promo vence en 1 hora, así que si te interesa, aprovechala ahora. 👇",
     )
     time.sleep(PAUSA_ENTRE_MENSAJES)
@@ -1174,6 +1186,8 @@ def manejar_boton(from_number, opcion_id):
         # sin imagen. La secuencia con imagen/banner queda reservada para
         # el recordatorio automático de 1 hora, si la persona no compra en
         # ese tiempo (ver programar_recordatorio_compra).
+        cantidad = len(producto["manuales"])
+        texto_cantidad = "el manual" if cantidad == 1 else f"los {cantidad} manuales"
         enviar_mensaje_texto(
             from_number,
             "🎉 ¡Excelente decisión! Podés abonar por "
@@ -1187,7 +1201,7 @@ def manejar_boton(from_number, opcion_id):
             f"*Titular:* {DATOS_TRANSFERENCIA['titular']}\n\n"
             f"💰 *Total:* {producto['precio']}\n\n"
             "📩 Si pagás por transferencia, enviame el comprobante (foto o PDF) acá mismo "
-            f"y te mando los {len(producto['manuales'])} manuales al instante."
+            f"y te mando {texto_cantidad} al instante."
             f"{cierre_mp}\n\n"
             f"📌 Si tenés cualquier inconveniente, escribime directo a mi número "
             f"personal: *{NUMERO_RESPALDO}*",
@@ -1272,6 +1286,8 @@ def _enviar_secuencia_ficha(to, clave):
     producto = PRODUCTOS.get(clave)
     if not producto:
         return
+
+    PRODUCTO_ACTUAL[to] = clave  # recordamos qué producto le mostramos a este número
 
     PAUSA = 4  # segundos entre mensaje y mensaje
 
@@ -1380,25 +1396,26 @@ def _enviar_interactivo(to, payload, texto_para_guardar):
 
 
 def enviar_manuales_completos(to, clave="kit_maestro"):
-    # TODO: cuando tengas más de un pack, guardá la "clave" del producto comprado
-    # junto con el comprobante en la base, para saber cuál aprobar acá (hoy siempre
-    # asume "kit_maestro" porque es el único que existe).
     producto = PRODUCTOS[clave]
     link_carpeta = producto.get("link_carpeta_final")
+    cantidad = len(producto["manuales"])
 
     if link_carpeta:
-        # Un solo link de carpeta con todos los manuales adentro.
+        if cantidad == 1:
+            descripcion_entrega = "tu archivo, listo para descargar"
+        else:
+            descripcion_entrega = f"tu carpeta con los {cantidad} manuales completos, listos para descargar"
         enviar_mensaje_texto(
             to,
-            f"✅ *¡Pago confirmado!* Acá tenés tu carpeta con los {len(producto['manuales'])} "
-            "manuales completos, listos para descargar:\n\n"
+            f"✅ *¡Pago confirmado!* Acá tenés {descripcion_entrega}:\n\n"
             f"{link_carpeta}\n\n"
             "¡Gracias por tu compra! 🙌",
         )
     else:
         # Respaldo: si no hay carpeta configurada, mandamos los links
         # individuales de cada manual (como se hacía antes).
-        lineas = [f"✅ *¡Pago confirmado! Acá tenés tus {len(producto['manuales'])} manuales completos:*\n"]
+        encabezado = "tu manual completo" if cantidad == 1 else f"tus {cantidad} manuales completos"
+        lineas = [f"✅ *¡Pago confirmado! Acá tenés {encabezado}:*\n"]
         for i, manual in enumerate(producto["manuales"], start=1):
             lineas.append(f"{i}️⃣ *{manual['titulo']}* ({manual['autor']})\n👉 {manual['link']}\n")
         lineas.append("¡Gracias por tu compra! 🙌")
