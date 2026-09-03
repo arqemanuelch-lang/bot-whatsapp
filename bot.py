@@ -372,6 +372,14 @@ CATEGORIAS_RESPUESTAS = {
             "otro2": ("💬 Otra cosa", "Gracias por tu mensaje, ya te respondo."),
         },
     },
+    "guiar": {
+        "titulo": "🔄 Guiar",
+        "opciones": {
+            "guiar1": ("📝 Escribí DROPLY", "Si querés ver todo de nuevo, escribí *DROPLY* y te muestro el pack completo. 😊"),
+            "guiar2": ("❓ Qué buscás", "¿Qué tipo de información te gustaría? Contame y te ayudo directo. 😊"),
+            "guiar3": ("📦 Ver el pack", "Escribí *arquitectura y construcción* y te mando toda la info del pack de nuevo."),
+        },
+    },
 }
 
 
@@ -1309,11 +1317,25 @@ def enviar_manuales_completos(to, clave="kit_maestro"):
     # junto con el comprobante en la base, para saber cuál aprobar acá (hoy siempre
     # asume "kit_maestro" porque es el único que existe).
     producto = PRODUCTOS[clave]
-    lineas = [f"✅ *¡Pago confirmado! Acá tenés tus {len(producto['manuales'])} manuales completos:*\n"]
-    for i, manual in enumerate(producto["manuales"], start=1):
-        lineas.append(f"{i}️⃣ *{manual['titulo']}* ({manual['autor']})\n👉 {manual['link']}\n")
-    lineas.append("¡Gracias por tu compra! 🙌")
-    enviar_mensaje_texto(to, "\n".join(lineas))
+    link_carpeta = producto.get("link_carpeta_final")
+
+    if link_carpeta:
+        # Un solo link de carpeta con todos los manuales adentro.
+        enviar_mensaje_texto(
+            to,
+            f"✅ *¡Pago confirmado!* Acá tenés tu carpeta con los {len(producto['manuales'])} "
+            "manuales completos, listos para descargar:\n\n"
+            f"{link_carpeta}\n\n"
+            "¡Gracias por tu compra! 🙌",
+        )
+    else:
+        # Respaldo: si no hay carpeta configurada, mandamos los links
+        # individuales de cada manual (como se hacía antes).
+        lineas = [f"✅ *¡Pago confirmado! Acá tenés tus {len(producto['manuales'])} manuales completos:*\n"]
+        for i, manual in enumerate(producto["manuales"], start=1):
+            lineas.append(f"{i}️⃣ *{manual['titulo']}* ({manual['autor']})\n👉 {manual['link']}\n")
+        lineas.append("¡Gracias por tu compra! 🙌")
+        enviar_mensaje_texto(to, "\n".join(lineas))
 
 
 # =====================================================================
