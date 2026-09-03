@@ -26,8 +26,7 @@ PALABRA_CLAVE_MENU = "DROPLY"
 # Mensaje de bienvenida que se manda junto con la lista de productos,
 # la primera vez que alguien saluda ("hola", "buenas", etc.)
 MENSAJE_BIENVENIDA_MENU = (
-    "¡Hola! 👋 Bienvenido a nuestro espacio de manuales técnicos de "
-    "construcción y arquitectura. Elegí el pack que te interesa:"
+    "¡Hola! 👋 Bienvenido a Droply IA. Elegí el producto que te interesa:"
 )
 
 # Número de respaldo al que el cliente puede escribir directamente con su
@@ -54,10 +53,12 @@ DATOS_TRANSFERENCIA = {
 #    asesor y todavía no lo atendió un humano.
 # ---------------------------------------------------------------------
 PROMPT_SISTEMA_IA = (
-    "Sos un asistente de ventas por WhatsApp para un negocio de manuales "
-    "técnicos de construcción y arquitectura. Respondé breve, claro y "
-    "amable en español, orientando siempre a que compren el Kit Maestro "
-    "(escribiendo 'kit maestro')."
+    "Sos un asistente de ventas por WhatsApp para Droply IA, un negocio que vende "
+    "productos digitales en PDF: manuales técnicos de construcción y arquitectura "
+    "(Kit Maestro), y libros de desarrollo personal (33 Días de Manifestación). "
+    "Respondé breve, claro y amable en español. Si no sabés bien qué producto le "
+    "interesa al cliente, preguntale directamente. Orientalo a escribir el nombre "
+    "del producto que le interesa para que el sistema le muestre la ficha completa."
 )
 
 
@@ -173,6 +174,19 @@ PRODUCTOS = {
     #         {"titulo": "...", "autor": "...", "link": "..."},
     #     ],
     # },
+    "manifestacion_33_dias": {
+        "titulo": "33 Días de Manifestación: Manual para la Creación",
+        "descripcion_corta": "1 libro completo en PDF",
+        "precio": "$5.000",
+        "precio_oferta": "$5.000",
+        "precio_valor": 5000,
+        "imagen": "https://i.ibb.co/Ngkpy6Lp/f21261a8-0358-4b93-88b6-6049d2a83ee8.jpg",
+        "link_carpeta_final": "https://drive.google.com/file/d/1ACjBaDW80u35qDZbWni0ILJl7eeVLHyd/view?usp=sharing",
+        "manuales": [
+            {"titulo": "33 Días de Manifestación: Manual para la Creación", "autor": "",
+             "link": "https://drive.google.com/file/d/1foMNuvbqIDwkLTD3v6ycR4w8UMPAA8-d/view?usp=sharing"},
+        ],
+    },
 }
 
 
@@ -214,4 +228,10 @@ PALABRAS_POR_PRODUCTO = {
     #     "instalaciones electricas",
     #     "kit electricidad",
     # ],
+    "manifestacion_33_dias": [
+        "33 dias",
+        "manifestacion",
+        "manual de creacion",
+        "manual para la creacion",
+    ],
 }
