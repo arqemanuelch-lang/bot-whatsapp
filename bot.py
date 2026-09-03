@@ -1,6 +1,7 @@
 import os
 import hmac
 import hashlib
+import re
 import sqlite3
 import threading
 import time
@@ -338,30 +339,79 @@ def _escapar_html(texto):
 
 
 # ---------------------------------------------------------------------
-# Respuestas rápidas: botones que aparecen debajo de CADA notificación de
-# Telegram.
-#  - "📱 Hablar personalmente" es un botón de LINK: abre tu WhatsApp
-#    personal con el chat de ese cliente ya armado (wa.me), para que le
-#    escribas vos directo desde tu celu, sin pasar por el bot.
-#  - "💬 Otra cosa" es una respuesta rápida: al tocarla, se le manda ese
-#    texto al cliente por WhatsApp (a través del bot) al instante.
-# Para agregar más respuestas rápidas de texto, se agregan acá abajo (la
-# clave, tipo "otra", es interna).
+# Respuestas rápidas organizadas en CATEGORÍAS: al tocar una categoría en
+# Telegram, se despliegan sus opciones específicas (sub-botones). Al
+# tocar una opción, se le manda ese texto al cliente por WhatsApp y se
+# vuelve al menú de categorías. El botón de link "Hablar personalmente"
+# siempre está arriba de todo, en cualquier nivel del menú.
+#
+# Para agregar/cambiar categorías u opciones, se edita este diccionario.
+# Las claves (ej: "pago", "pago1") son internas, no se ven.
 # ---------------------------------------------------------------------
-RESPUESTAS_RAPIDAS = {
-    "otra": ("💬 Otra cosa", "Gracias por tu mensaje, ya te respondo."),
+CATEGORIAS_RESPUESTAS = {
+    "pago": {
+        "titulo": "💰 Pago",
+        "opciones": {
+            "pago1": ("✅ Ya enviamos", "¡Listo! Ya te enviamos los manuales, cualquier duda escribinos."),
+            "pago2": ("📸 Reenviar comprobante", "¿Podés reenviar el comprobante? No lo pudimos ver bien."),
+            "pago3": ("⏳ Dame minutos", "Dame unos minutos que ya te atiendo."),
+        },
+    },
+    "producto": {
+        "titulo": "📦 Producto",
+        "opciones": {
+            "prod1": ("📚 Qué incluye", "El pack incluye 8 manuales técnicos completos de arquitectura y construcción, en PDF."),
+            "prod2": ("💵 Precio", "El Kit Maestro cuesta $5.500, con los 8 manuales completos."),
+            "prod3": ("🕐 Cuándo llega", "Apenas confirmemos tu pago, te mando los manuales al instante por acá mismo."),
+        },
+    },
+    "otro": {
+        "titulo": "💬 Otro",
+        "opciones": {
+            "otro1": ("🙏 Gracias compra", "¡Gracias por tu compra! Cualquier consulta, escribí."),
+            "otro2": ("💬 Otra cosa", "Gracias por tu mensaje, ya te respondo."),
+        },
+    },
 }
 
 
-def _teclado_respuestas_rapidas(numero):
-    """Arma el teclado de Telegram: primero el botón de link para hablar
-    personalmente por WhatsApp, y abajo las respuestas rápidas de texto."""
+def _teclado_categorias(numero):
+    """Menú principal: el link para hablar personalmente + una fila por
+    categoría."""
     filas = [
         [{"text": "📱 Hablar personalmente", "url": f"https://wa.me/{numero}"}],
     ]
-    for clave, (titulo_boton, _) in RESPUESTAS_RAPIDAS.items():
-        filas.append([{"text": titulo_boton, "callback_data": f"{clave}:{numero}"}])
+    for cat_id, categoria in CATEGORIAS_RESPUESTAS.items():
+        filas.append([{"text": categoria["titulo"], "callback_data": f"cat:{cat_id}:{numero}"}])
     return {"inline_keyboard": filas}
+
+
+def _teclado_subrespuestas(cat_id, numero):
+    """Sub-menú de una categoría puntual, con botón para volver atrás."""
+    filas = [
+        [{"text": "📱 Hablar personalmente", "url": f"https://wa.me/{numero}"}],
+    ]
+    categoria = CATEGORIAS_RESPUESTAS.get(cat_id)
+    if categoria:
+        for opt_id, (titulo_boton, _) in categoria["opciones"].items():
+            filas.append([{"text": titulo_boton, "callback_data": f"resp:{cat_id}:{opt_id}:{numero}"}])
+    filas.append([{"text": "⬅️ Volver", "callback_data": f"back:{numero}"}])
+    return {"inline_keyboard": filas}
+
+
+def _editar_teclado_telegram(chat_id, message_id, teclado):
+    """Cambia los botones de un mensaje de Telegram ya enviado (para
+    navegar entre el menú de categorías y sus sub-opciones)."""
+    if not TELEGRAM_BOT_TOKEN or not chat_id or not message_id:
+        return
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageReplyMarkup",
+            json={"chat_id": chat_id, "message_id": message_id, "reply_markup": teclado},
+            timeout=10,
+        )
+    except Exception as e:
+        print("Error editando teclado de Telegram:", e)
 
 
 def enviar_notificacion_telegram(numero, resumen_texto):
@@ -400,7 +450,7 @@ def enviar_notificacion_telegram(numero, resumen_texto):
             "chat_id": TELEGRAM_CHAT_ID,
             "text": texto_formateado,
             "parse_mode": "HTML",
-            "reply_markup": _teclado_respuestas_rapidas(numero),
+            "reply_markup": _teclado_categorias(numero),
         }
         resp = requests.post(url, json=payload, timeout=10)
         if resp.status_code >= 400:
@@ -688,30 +738,53 @@ def telegram_webhook():
     try:
         data = request.json or {}
 
-        # --- Botones de respuesta rápida (llegan como "callback_query", no
-        #     como un mensaje normal) ---
+        # --- Botones (llegan como "callback_query", no como un mensaje
+        #     normal). Pueden ser: "cat:..." (entrar a una categoría),
+        #     "back:..." (volver al menú principal), o "resp:..." (mandar
+        #     la respuesta puntual elegida). ---
         callback = data.get("callback_query")
         if callback:
             callback_id = callback.get("id")
             callback_data = callback.get("data", "")
-            clave, _, numero = callback_data.partition(":")
+            mensaje_cb = callback.get("message", {})
+            chat_id_cb = mensaje_cb.get("chat", {}).get("id")
+            message_id_cb = mensaje_cb.get("message_id")
 
-            texto_a_enviar = None
-            if clave in RESPUESTAS_RAPIDAS and numero:
-                _, texto_a_enviar = RESPUESTAS_RAPIDAS[clave]
-                desactivar_modo_ia(numero)
-                cancelar_recordatorio(numero)
-                enviar_mensaje_texto(numero, texto_a_enviar)
+            partes = callback_data.split(":")
+            accion_cb = partes[0] if partes else ""
+            aviso_popup = "OK"
+
+            if accion_cb == "cat" and len(partes) == 3:
+                _, cat_id, numero = partes
+                _editar_teclado_telegram(chat_id_cb, message_id_cb, _teclado_subrespuestas(cat_id, numero))
+                aviso_popup = "Elegí una opción 👇"
+
+            elif accion_cb == "back" and len(partes) == 2:
+                _, numero = partes
+                _editar_teclado_telegram(chat_id_cb, message_id_cb, _teclado_categorias(numero))
+                aviso_popup = "Volviendo al menú"
+
+            elif accion_cb == "resp" and len(partes) == 4:
+                _, cat_id, opt_id, numero = partes
+                categoria = CATEGORIAS_RESPUESTAS.get(cat_id, {})
+                opcion = categoria.get("opciones", {}).get(opt_id)
+                if opcion:
+                    _, texto_a_enviar = opcion
+                    desactivar_modo_ia(numero)
+                    cancelar_recordatorio(numero)
+                    enviar_mensaje_texto(numero, texto_a_enviar)
+                    aviso_popup = "Enviado ✅"
+                    # Volvemos al menú principal después de responder.
+                    _editar_teclado_telegram(chat_id_cb, message_id_cb, _teclado_categorias(numero))
+                else:
+                    aviso_popup = "No se pudo enviar"
 
             # Hay que "contestarle" a Telegram el callback, si no el botón
             # se queda cargando (girando) en la app del usuario.
             if TELEGRAM_BOT_TOKEN and callback_id:
                 requests.post(
                     f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery",
-                    json={
-                        "callback_query_id": callback_id,
-                        "text": "Enviado ✅" if texto_a_enviar else "No se pudo enviar",
-                    },
+                    json={"callback_query_id": callback_id, "text": aviso_popup},
                     timeout=10,
                 )
             return jsonify({"status": "callback_procesado"}), 200
@@ -734,6 +807,17 @@ def telegram_webhook():
 
         telegram_message_id = respondido_a.get("message_id")
         numero = obtener_numero_por_mensaje_telegram(telegram_message_id)
+
+        if not numero:
+            # Respaldo: si la base de datos perdió esta referencia (por
+            # ejemplo, si el servidor se reinició entre que llegó la
+            # notificación y que la respondiste), tratamos de sacar el
+            # número directo del texto del mensaje original al que
+            # respondiste (ahí siempre aparece el número de teléfono).
+            texto_original = respondido_a.get("text", "")
+            match = re.search(r"\d{10,15}", texto_original)
+            if match:
+                numero = match.group(0)
 
         if numero:
             desactivar_modo_ia(numero)  # ya lo está atendiendo un humano
@@ -862,11 +946,17 @@ def manejar_texto(from_number, msg_body_lower):
         return
 
     # 1) Si no menciona ningún producto puntual, pero sí un saludo genérico
-    #    ("hola", "informacion", etc.) -> mandamos el menú con todos los packs.
+    #    ("hola", "informacion", etc.):
+    #    - Si hay UN SOLO producto cargado, vamos directo a su ficha (sin
+    #      pasar por ningún menú/lista, para no obligar a tocar nada).
+    #    - Si hay VARIOS productos, ahí sí mandamos el menú para que elija.
     #    También tiene prioridad sobre el modo IA.
     if any(palabra in msg_normalizado for palabra in PALABRAS_ACTIVADORAS):
         desactivar_modo_ia(from_number)
-        enviar_menu_productos(from_number)
+        if len(PRODUCTOS) == 1:
+            enviar_ficha_producto(from_number, next(iter(PRODUCTOS)))
+        else:
+            enviar_menu_productos(from_number)
         return
 
     # 1.5) Red de contención para gente que no toca los botones y escribe
