@@ -472,6 +472,55 @@ def enviar_notificacion_telegram(numero, resumen_texto):
         print("Error notificando a Telegram:", e)
 
 
+def enviar_notificacion_telegram_comprobante(numero, comprobante_id, clave="kit_maestro"):
+    """Notificación especial cuando llega un comprobante de pago: en vez
+    del menú de categorías normal, incluye un botón para aprobar el pago
+    y mandar la carpeta de manuales al instante, sin pasar por el panel."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+    try:
+        nombre = obtener_nombre_contacto(numero)
+        hora = datetime.utcnow().strftime("%H:%M")
+        encabezado = (
+            f"👤 <b>{_escapar_html(nombre)}</b>  ·  <code>{_escapar_html(numero)}</code>"
+            if nombre != numero
+            else f"👤 <b>{_escapar_html(numero)}</b>"
+        )
+        texto_formateado = (
+            f"📎 <b>Comprobante de pago — {_escapar_html(NOMBRE_NEGOCIO)}</b>\n"
+            f"{encabezado}\n"
+            f"🕒 {hora}\n\n"
+            "Mandó un comprobante. Revisalo en el panel, o tocá el botón para "
+            "aprobarlo y mandarle la carpeta de manuales al instante."
+        )
+        teclado = {
+            "inline_keyboard": [
+                [{"text": "📱 Hablar personalmente", "url": f"https://wa.me/{numero}"}],
+                [{"text": "✅ Aprobar y enviar carpeta", "callback_data": f"aprobar:{comprobante_id}:{clave}:{numero}"}],
+            ]
+        }
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        resp = requests.post(
+            url,
+            json={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": texto_formateado,
+                "parse_mode": "HTML",
+                "reply_markup": teclado,
+            },
+            timeout=10,
+        )
+        if resp.status_code >= 400:
+            print("Error notificando comprobante a Telegram:", resp.text)
+            return
+        data = resp.json()
+        telegram_message_id = data.get("result", {}).get("message_id")
+        if telegram_message_id:
+            registrar_mapeo_telegram(telegram_message_id, numero)
+    except Exception as e:
+        print("Error notificando comprobante a Telegram:", e)
+
+
 def configurar_webhook_telegram():
     """Le dice a Telegram a qué URL mandar los updates (mensajes que te
     escriben o respuestas que hacés). Se llama solo al arrancar la app."""
@@ -594,12 +643,14 @@ def esta_en_modo_ia(numero):
 
 def guardar_comprobante(numero, media_id, mime_type):
     conn = sqlite3.connect(DB_PATH)
-    conn.execute(
+    cursor = conn.execute(
         "INSERT INTO comprobantes (numero, media_id, mime_type, estado, fecha) VALUES (?, ?, ?, 'pendiente', ?)",
         (numero, media_id, mime_type, datetime.utcnow().strftime("%d/%m %H:%M:%S")),
     )
     conn.commit()
+    comprobante_id = cursor.lastrowid
     conn.close()
+    return comprobante_id
 
 
 def obtener_comprobantes_pendientes_por_numero():
@@ -717,15 +768,12 @@ def receive_message():
             media_id = media_obj.get("id")
             mime_type = media_obj.get("mime_type", "")
             if media_id:
-                guardar_comprobante(from_number, media_id, mime_type)
+                comprobante_id = guardar_comprobante(from_number, media_id, mime_type)
                 cancelar_recordatorio(from_number)
                 guardar_mensaje(
                     from_number, "entrante", "📎 Comprobante recibido (pendiente de aprobación)"
                 )
-                enviar_notificacion_telegram(
-                    from_number,
-                    "📎 Mandó un comprobante de pago. Andá al panel para revisarlo y aprobarlo.",
-                )
+                enviar_notificacion_telegram_comprobante(from_number, comprobante_id)
                 enviar_mensaje_texto(
                     from_number,
                     "¡Recibimos tu comprobante! 📎 En breve lo revisamos y te enviamos los "
@@ -786,6 +834,25 @@ def telegram_webhook():
                     _editar_teclado_telegram(chat_id_cb, message_id_cb, _teclado_categorias(numero))
                 else:
                     aviso_popup = "No se pudo enviar"
+
+            elif accion_cb == "aprobar" and len(partes) == 4:
+                _, comprobante_id, clave, numero = partes
+                marcar_comprobante_aprobado(comprobante_id)
+                desactivar_modo_ia(numero)
+                cancelar_recordatorio(numero)
+                enviar_manuales_completos(numero, clave)
+                aviso_popup = "✅ Aprobado, carpeta enviada"
+                # Reemplazamos el botón de aprobar por un aviso de que ya se procesó.
+                _editar_teclado_telegram(
+                    chat_id_cb,
+                    message_id_cb,
+                    {
+                        "inline_keyboard": [
+                            [{"text": "📱 Hablar personalmente", "url": f"https://wa.me/{numero}"}],
+                            [{"text": "✅ Ya aprobado", "callback_data": f"back:{numero}"}],
+                        ]
+                    },
+                )
 
             # Hay que "contestarle" a Telegram el callback, si no el botón
             # se queda cargando (girando) en la app del usuario.
