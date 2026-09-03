@@ -135,9 +135,14 @@ PRODUCTOS = {
         "descripcion_corta": "8 manuales técnicos en PDF",
         "precio": "$5.500",
         "precio_oferta": "$5.500",
+        "precio_valor": 5500,  # el mismo precio, pero como número (lo necesita Mercado Pago)
         "link_pago": "https://mpago.la/17uyqFK",
         "imagen": "https://i.ibb.co/R40sSbHt/Sin-t-tulo-1080-1920-px-1080-x-1080-px-1080-x-1920-px-1080-x-1350-px-1.png",
-        "imagen_oferta": "https://i.ibb.co/Z6NnT3sx/115829a6-72a0-425d-90d4-ba7ec17fcd78.jpg",
+        "imagen_oferta": "https://i.ibb.co/Xxj34Py5/bdb49a96-6a16-459f-bde7-bf4ceedb98db.jpg",
+        # Carpeta de Google Drive con TODOS los manuales completos. Se manda
+        # este único link cuando se confirma el pago (en vez de los 8 links
+        # individuales de cada manual, que son solo para "ver adelanto").
+        "link_carpeta_final": "https://drive.google.com/drive/folders/1YwPEiA5UWOl60GIg_8YYxxVpWaaO6MSw?usp=sharing",
         "manuales": [
             {"titulo": "Cómo se proyecta una Vivienda", "autor": "J.L. Moia",
              "link": "https://drive.google.com/file/d/12MHAHdQZ7Bm7RTBTD1SVdd0XxDXNO54L/view?usp=sharing"},
