@@ -777,11 +777,17 @@ def receive_message():
                 guardar_mensaje(
                     from_number, "entrante", "📎 Comprobante recibido (pendiente de aprobación)"
                 )
-                enviar_notificacion_telegram_comprobante(from_number, comprobante_id)
+                # Usamos el producto que realmente le mostramos a este
+                # cliente (no siempre "kit_maestro"), para que el botón de
+                # aprobar en Telegram mande el archivo correcto.
+                clave_producto_actual = PRODUCTO_ACTUAL.get(from_number, next(iter(PRODUCTOS)))
+                enviar_notificacion_telegram_comprobante(from_number, comprobante_id, clave_producto_actual)
+                producto_actual = PRODUCTOS.get(clave_producto_actual, {})
+                texto_cantidad = _texto_cantidad_manuales(producto_actual) if producto_actual else "los manuales"
                 enviar_mensaje_texto(
                     from_number,
-                    "¡Recibimos tu comprobante! 📎 En breve lo revisamos y te enviamos los "
-                    "8 manuales completos. Gracias por tu paciencia.",
+                    "¡Recibimos tu comprobante! 📎 En breve lo revisamos y te enviamos "
+                    f"{texto_cantidad}. Gracias por tu paciencia.",
                 )
 
     except Exception as e:
@@ -2070,7 +2076,10 @@ def panel_aprobar():
         marcar_comprobante_aprobado(comprobante_id)
         desactivar_modo_ia(numero)  # ya lo atendió un humano al aprobar el pago
         cancelar_recordatorio(numero)
-        enviar_manuales_completos(numero)
+        # Usamos el producto que realmente le mostramos a este cliente, no
+        # siempre "kit_maestro" (si no, se manda el archivo equivocado).
+        clave_producto_actual = PRODUCTO_ACTUAL.get(numero, next(iter(PRODUCTOS)))
+        enviar_manuales_completos(numero, clave_producto_actual)
     return redirect(f"/panel?numero={numero}")
 
 
