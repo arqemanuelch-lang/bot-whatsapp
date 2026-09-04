@@ -181,7 +181,8 @@ PRODUCTOS = {
         "precio_oferta": "$5.000",
         "precio_valor": 5000,
         "imagen": "https://i.ibb.co/Ngkpy6Lp/f21261a8-0358-4b93-88b6-6049d2a83ee8.jpg",
-        "imagen_oferta": "https://i.ibb.co/DfQc5Yr2/333.png",  # se usa en el recordatorio automático de 1 hora
+        "imagen_oferta": "https://i.ibb.co/DfQc5Yr2/333.png",
+        "mostrar_dos_imagenes": True,  # este producto manda las 2 imágenes juntas en la ficha inicial
         "link_carpeta_final": "https://drive.google.com/file/d/1ACjBaDW80u35qDZbWni0ILJl7eeVLHyd/view?usp=sharing",
         "manuales": [
             {"titulo": "33 Días de Manifestación: Manual para la Creación", "autor": "",
