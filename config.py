@@ -13,10 +13,17 @@
 # =====================================================================
 
 
+import os
+
 # ---------------------------------------------------------------------
 # 1) DATOS GENERALES DEL NEGOCIO
 # ---------------------------------------------------------------------
 NOMBRE_NEGOCIO = "Droply IA"
+
+# URL pública de tu propio servidor (Render), para poder alojar archivos
+# propios en vez de depender de Google Drive. Si no configurás la
+# variable de entorno BASE_URL en Render, usa este valor por defecto.
+BASE_URL_ARCHIVOS = os.getenv("BASE_URL", "https://bot-whatsapp-ojza.onrender.com")
 
 # Palabra "comodín" que la gente puede escribir para ver el menú de
 # productos si el bot no entendió su mensaje (se muestra en el aviso de
@@ -183,7 +190,7 @@ PRODUCTOS = {
         "imagen": "https://i.ibb.co/Ngkpy6Lp/f21261a8-0358-4b93-88b6-6049d2a83ee8.jpg",
         "imagen_oferta": "https://i.ibb.co/DfQc5Yr2/333.png",
         "mostrar_dos_imagenes": True,  # este producto manda las 2 imágenes juntas en la ficha inicial
-        "link_carpeta_final": "https://drive.google.com/file/d/1ACjBaDW80u35qDZbWni0ILJl7eeVLHyd/view?usp=sharing",
+        "link_carpeta_final": f"{BASE_URL_ARCHIVOS}/archivos/33_comprimido.pdf",
         "manuales": [
             {"titulo": "33 Días de Manifestación: Manual para la Creación", "autor": "",
              "link": "https://drive.google.com/file/d/1foMNuvbqIDwkLTD3v6ycR4w8UMPAA8-d/view?usp=sharing"},
