@@ -8,7 +8,7 @@ import time
 import unicodedata
 import requests
 from datetime import datetime
-from flask import Flask, request, jsonify, render_template_string, redirect, session
+from flask import Flask, request, jsonify, render_template_string, redirect, session, send_from_directory
 
 # =====================================================================
 #  Toda la configuración específica de ESTE negocio (productos, precios,
@@ -1291,12 +1291,27 @@ def _enviar_secuencia_ficha(to, clave):
 
     PAUSA = 4  # segundos entre mensaje y mensaje
 
-    # La imagen del banner de oferta va primero, sin caption (si no está
-    # configurada, usamos la imagen general como respaldo).
-    imagen_url = producto.get("imagen_oferta") or producto.get("imagen")
-    if imagen_url:
-        enviar_imagen(to, imagen_url)
-        time.sleep(PAUSA)
+    # Por defecto, cada producto manda UNA sola imagen en la ficha (prioriza
+    # la de oferta si existe, si no la de portada) — así se comportaba el
+    # Kit Maestro desde el principio y no lo tocamos.
+    # Si un producto puntual tiene "mostrar_dos_imagenes": True en su config,
+    # ahí sí mandamos las dos, una atrás de la otra.
+    if producto.get("mostrar_dos_imagenes"):
+        imagen_portada = producto.get("imagen")
+        imagen_oferta = producto.get("imagen_oferta")
+
+        if imagen_portada:
+            enviar_imagen(to, imagen_portada)
+            time.sleep(PAUSA)
+
+        if imagen_oferta and imagen_oferta != imagen_portada:
+            enviar_imagen(to, imagen_oferta)
+            time.sleep(PAUSA)
+    else:
+        imagen_url = producto.get("imagen_oferta") or producto.get("imagen")
+        if imagen_url:
+            enviar_imagen(to, imagen_url)
+            time.sleep(PAUSA)
 
     # Mensaje 1: saludo, agradeciendo el interés.
     enviar_mensaje_texto(
@@ -1951,6 +1966,20 @@ def panel_login():
 def panel_logout():
     session.pop("panel_ok", None)
     return redirect("/panel/login")
+
+
+# =====================================================================
+#  Archivos propios: para productos (PDFs, etc.) que preferís alojar en
+#  tu propio servidor en vez de depender de Google Drive u otro tercero.
+#  Subí el archivo a la carpeta "archivos/" en tu repositorio, y va a
+#  quedar disponible en: https://TU-APP.onrender.com/archivos/nombre.pdf
+# =====================================================================
+CARPETA_ARCHIVOS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "archivos")
+
+
+@app.route("/archivos/<path:nombre_archivo>")
+def servir_archivo(nombre_archivo):
+    return send_from_directory(CARPETA_ARCHIVOS, nombre_archivo, as_attachment=False)
 
 
 @app.route("/panel")
