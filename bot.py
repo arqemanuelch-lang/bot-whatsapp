@@ -1319,21 +1319,32 @@ def _enviar_secuencia_ficha(to, clave):
             enviar_imagen(to, imagen_url)
             time.sleep(PAUSA)
 
-    # Mensaje 1: saludo, agradeciendo el interés.
+    # Mensaje 1: saludo, agradeciendo el interés. El emoji se puede
+    # personalizar por producto con "emoji_ficha" en config.py (si no se
+    # define, usa 🏗️ por default, pensado originalmente para el Kit Maestro).
+    emoji_producto = producto.get("emoji_ficha", "🏗️")
     enviar_mensaje_texto(
         to,
-        f"¡Hola! 👋 Gracias por tu interés en nuestro *{producto['titulo']}* 🏗️\n\n"
+        f"¡Hola! 👋 Gracias por tu interés en nuestro *{producto['titulo']}* {emoji_producto}\n\n"
         "¡Excelente elección! Te cuento todo lo que incluye.",
     )
     time.sleep(PAUSA)
 
-    # Mensaje 2: lo que incluye (los manuales, con su link de adelanto,
-    # separados con un espacio para que se distinga bien uno de otro).
-    lineas = [f"📚 *Esto es lo que te llevás:*\n"]
-    for i, manual in enumerate(producto["manuales"], start=1):
-        lineas.append(f"{i}️⃣ *{manual['titulo']}* ({manual['autor']})")
-        lineas.append(f"👉 {manual['link']}\n")
-    enviar_mensaje_texto(to, "\n".join(lineas))
+    # Mensaje 2: lo que incluye. Si el producto tiene "que_incluye" (una
+    # lista de beneficios, para productos que no son PDFs/manuales, como
+    # una cuenta o suscripción), se usa ese formato. Si no, se arma con
+    # los manuales (título + autor + link de adelanto), como antes.
+    if producto.get("que_incluye"):
+        lineas = [f"✨ *¿Qué incluye tu plan?*\n"]
+        for item in producto["que_incluye"]:
+            lineas.append(f"✅ {item}")
+        enviar_mensaje_texto(to, "\n".join(lineas))
+    else:
+        lineas = [f"📚 *Esto es lo que te llevás:*\n"]
+        for i, manual in enumerate(producto["manuales"], start=1):
+            lineas.append(f"{i}️⃣ *{manual['titulo']}* ({manual['autor']})")
+            lineas.append(f"👉 {manual['link']}\n")
+        enviar_mensaje_texto(to, "\n".join(lineas))
     time.sleep(PAUSA)
 
     # Mensaje 3: precio + instrucción para comprar escribiendo "ALIAS".
@@ -1399,6 +1410,16 @@ def enviar_botones_pack(to, clave, texto="¿Cómo querés avanzar?", incluir_ver
 
 def _texto_detalle_manuales(clave):
     producto = PRODUCTOS[clave]
+
+    # Si el producto tiene "que_incluye" (una lista de beneficios, para
+    # productos que no son PDFs/manuales), se arma el texto con eso.
+    if producto.get("que_incluye"):
+        lineas = [f"✨ *¿Qué incluye el {producto['titulo']}?*\n"]
+        for item in producto["que_incluye"]:
+            lineas.append(f"✅ {item}")
+        lineas.append(f"\n💰 *Precio:* {producto['precio']}")
+        return "\n".join(lineas)
+
     lineas = [f"📖 *Contenido del {producto['titulo']}*:\n"]
     for i, manual in enumerate(producto["manuales"], start=1):
         lineas.append(f"{i}️⃣ *{manual['titulo']}* ({manual['autor']})\n👉 *Ver adelanto:* {manual['link']}\n")
@@ -1418,6 +1439,21 @@ def _enviar_interactivo(to, payload, texto_para_guardar):
 
 def enviar_manuales_completos(to, clave="kit_maestro"):
     producto = PRODUCTOS[clave]
+
+    # Productos de entrega manual (ej: cuentas): no hay link ni carpeta,
+    # el usuario/contraseña lo escribe un humano a mano después, por
+    # WhatsApp (panel o Telegram).
+    if producto.get("entrega_manual"):
+        enviar_mensaje_texto(
+            to,
+            producto.get(
+                "mensaje_entrega_manual",
+                "✅ *¡Pago confirmado!* En breve te enviamos tus datos de acceso "
+                "acá mismo. ¡Gracias por tu compra! 🙌",
+            ),
+        )
+        return
+
     link_carpeta = producto.get("link_carpeta_final")
     cantidad = len(producto["manuales"])
 
