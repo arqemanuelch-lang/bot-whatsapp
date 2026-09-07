@@ -202,13 +202,18 @@ PRODUCTOS = {
             "En breve (dentro de las próximas horas) te vamos a enviar tu usuario "
             "y contraseña acá mismo. ¡Gracias por tu compra! 🙌"
         ),
-        "manuales": [
-            {
-                "titulo": "Gemini AI Pro — 18 meses",
-                "autor": "",
-                "link": "5 TB de almacenamiento • Acceso prioritario • Modelo más avanzado • Posibilidades ilimitadas",
-            },
+        # Este producto no tiene "manuales" (archivos PDF), así que en vez
+        # de forzarlo en ese formato, usa su propia lista de beneficios.
+        "que_incluye": [
+            "Modelo Gemini más avanzado, con límites de uso ampliados y una ventana de contexto de hasta 1 millón de tokens",
+            "Herramientas de investigación profunda (Deep Research) para analizar temas complejos en detalle",
+            "Agente de programación Jules, para asistencia en tareas de código",
+            "Generación de video con inteligencia artificial",
+            "Integración directa dentro de Gmail, Documentos, Presentaciones y Vids de Google Workspace",
+            "Hasta 5 TB de almacenamiento en Google One, compartido entre Drive, Gmail y Google Fotos",
         ],
+        "emoji_ficha": "🤖",
+        "manuales": [],  # se deja vacío: este producto no usa manuales/PDFs
     },
 }
 
