@@ -170,17 +170,6 @@ PRODUCTOS = {
              "link": "https://drive.google.com/file/d/1_YZf_GexbX-nE-PK4fBWlv05Ygu1iVw5/view?usp=sharing"},
         ],
     },
-    # Ejemplo de cómo se vería un segundo pack (descomentalo y completalo cuando lo tengas):
-    # "kit_electricidad": {
-    #     "titulo": "Kit de Electricidad Avanzada",
-    #     "descripcion_corta": "5 manuales de instalaciones eléctricas",
-    #     "precio": "$5.000",
-    #     "link_pago": "https://mpago.la/OTRO-LINK",
-    #     "imagen": "https://i.ibb.co/xxxxxxx/portada.png",
-    #     "manuales": [
-    #         {"titulo": "...", "autor": "...", "link": "..."},
-    #     ],
-    # },
     "manifestacion_33_dias": {
         "titulo": "33 Días de Manifestación: Manual para la Creación",
         "descripcion_corta": "1 libro completo en PDF",
@@ -194,6 +183,31 @@ PRODUCTOS = {
         "manuales": [
             {"titulo": "33 Días de Manifestación: Manual para la Creación", "autor": "",
              "link": "https://drive.google.com/file/d/10Rg9SZuh9oY02LRV16wUO3jqMh19QaDG/view?usp=sharing"},
+        ],
+    },
+    "cuenta_gemini_ai_pro": {
+        "titulo": "Gemini AI Pro — Suscripción 18 meses",
+        "descripcion_corta": "Cuenta con 5 TB de almacenamiento",
+        "precio": "$12.000",
+        "precio_oferta": "$12.000",
+        "precio_valor": 12000,
+        "imagen": "https://i.ibb.co/ymjhb3TF/Sin-t-tulo-1080-x-1920-px-1080-x-1080-px-1.png",
+        # Este producto se entrega A MANO (usuario/contraseña por WhatsApp),
+        # no tiene link de Drive ni carpeta. "entrega_manual" le avisa al
+        # motor (bot.py) que, al aprobar el pago, mande el mensaje de abajo
+        # en vez de buscar un link_carpeta_final.
+        "entrega_manual": True,
+        "mensaje_entrega_manual": (
+            "✅ *¡Pago confirmado!* Estamos activando tu cuenta de Gemini AI Pro. "
+            "En breve (dentro de las próximas horas) te vamos a enviar tu usuario "
+            "y contraseña acá mismo. ¡Gracias por tu compra! 🙌"
+        ),
+        "manuales": [
+            {
+                "titulo": "Gemini AI Pro — 18 meses",
+                "autor": "",
+                "link": "5 TB de almacenamiento • Acceso prioritario • Modelo más avanzado • Posibilidades ilimitadas",
+            },
         ],
     },
 }
@@ -231,16 +245,17 @@ PALABRAS_POR_PRODUCTO = {
         "manuales de construccion",
         "arquitectura y construccion",
     ],
-    # Ejemplo para cuando agregues el segundo pack (descomentalo y completalo):
-    # "kit_electricidad": [
-    #     "electricidad",
-    #     "instalaciones electricas",
-    #     "kit electricidad",
-    # ],
     "manifestacion_33_dias": [
         "33 dias",
         "manifestacion",
         "manual de creacion",
         "manual para la creacion",
+    ],
+    "cuenta_gemini_ai_pro": [
+        "gemini",
+        "gemini ai pro",
+        "cuenta gemini",
+        "gemini pro",
+        "ai pro",
     ],
 }
