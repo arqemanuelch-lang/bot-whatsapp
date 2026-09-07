@@ -188,9 +188,9 @@ PRODUCTOS = {
     "cuenta_gemini_ai_pro": {
         "titulo": "Gemini AI Pro — Suscripción 18 meses",
         "descripcion_corta": "Cuenta con 5 TB de almacenamiento",
-        "precio": "$12.000",
-        "precio_oferta": "$12.000",
-        "precio_valor": 12000,
+        "precio": "$15.990",
+        "precio_oferta": "$15.990",
+        "precio_valor": 15990,
         "imagen": "https://i.ibb.co/ymjhb3TF/Sin-t-tulo-1080-x-1920-px-1080-x-1080-px-1.png",
         # Este producto se entrega A MANO (usuario/contraseña por WhatsApp),
         # no tiene link de Drive ni carpeta. "entrega_manual" le avisa al
