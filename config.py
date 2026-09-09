@@ -171,19 +171,36 @@ PRODUCTOS = {
         ],
     },
     "manifestacion_33_dias": {
-        "titulo": "33 Días de Manifestación: Manual para la Creación",
-        "descripcion_corta": "1 libro completo en PDF",
-        "precio": "$5.000",
-        "precio_oferta": "$5.000",
-        "precio_valor": 5000,
+        "titulo": "Pack Manifestación Premium (3 Libros + Regalos)",
+        "descripcion_corta": "3 libros + 2 de regalo, en PDF/epub",
+        "precio": "$7.500",
+        "precio_oferta": "$7.500",
+        "precio_valor": 7500,
         "imagen": "https://i.ibb.co/Ngkpy6Lp/f21261a8-0358-4b93-88b6-6049d2a83ee8.jpg",
         "imagen_oferta": "https://i.ibb.co/DfQc5Yr2/333.png",
         "mostrar_dos_imagenes": True,  # este producto manda las 2 imágenes juntas en la ficha inicial
-        "link_carpeta_final": "https://drive.google.com/file/d/1ACjBaDW80u35qDZbWni0ILJl7eeVLHyd/view?usp=sharing",
+        # Carpeta con los 5 archivos (los 3 principales + los 2 de regalo).
+        # Se manda este link único cuando se confirma el pago.
+        "link_carpeta_final": "https://drive.google.com/drive/folders/1UEKFVOzt_hYG7p2a7UVfBhC0-SfVbOYI?usp=sharing",
+        # Los 3 libros que SÍ se publicitan, cada uno con su link de
+        # adelanto (vista previa antes de comprar).
         "manuales": [
-            {"titulo": "33 Días de Manifestación: Manual para la Creación", "autor": "",
+            {"titulo": "33 Días de Manifestación: Manual para la Creación", "autor": "Ulises Sampe",
              "link": "https://drive.google.com/file/d/10Rg9SZuh9oY02LRV16wUO3jqMh19QaDG/view?usp=sharing"},
+            {"titulo": "Imaginaria", "autor": "Kristopher Rodas",
+             "link": "https://drive.google.com/file/d/1cfvnHMHzZrIMOEpGPPIa43H-djx5i1Fs/view?usp=sharing"},
+            {"titulo": "Realifestación", "autor": "Catalina Luz Navarro",
+             "link": "https://drive.google.com/file/d/1Am14bDNYv67nGHg0qB0ezY1_uPwSPDfa/view?usp=sharing"},
         ],
+        # Los 2 libros de REGALO: NO se mencionan en la publicidad, son la
+        # sorpresa que se descubre acá, cuando el bot muestra el detalle
+        # del pack (no tienen link de adelanto individual, solo título y
+        # autor — se entregan completos junto con todo lo demás al pagar).
+        "regalo_sorpresa": [
+            "El Poder del Pensamiento Positivo — Norman Vincent Peale",
+            "El Secreto — Rhonda Byrne",
+        ],
+        "emoji_ficha": "✨",
     },
     "cuenta_gemini_ai_pro": {
         "titulo": "Gemini AI Pro — Suscripción 18 meses",
@@ -255,6 +272,9 @@ PALABRAS_POR_PRODUCTO = {
         "manifestacion",
         "manual de creacion",
         "manual para la creacion",
+        "pack manifestacion",
+        "imaginaria",
+        "realifestacion",
     ],
     "cuenta_gemini_ai_pro": [
         "gemini",
