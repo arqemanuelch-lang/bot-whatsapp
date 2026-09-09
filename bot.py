@@ -1330,20 +1330,26 @@ def _enviar_secuencia_ficha(to, clave):
     )
     time.sleep(PAUSA)
 
-    # Mensaje 2: lo que incluye. Si el producto tiene "que_incluye" (una
-    # lista de beneficios, para productos que no son PDFs/manuales, como
-    # una cuenta o suscripción), se usa ese formato. Si no, se arma con
-    # los manuales (título + autor + link de adelanto), como antes.
-    if producto.get("que_incluye"):
-        lineas = [f"✨ *¿Qué incluye tu plan?*\n"]
-        for item in producto["que_incluye"]:
-            lineas.append(f"✅ {item}")
-        enviar_mensaje_texto(to, "\n".join(lineas))
-    else:
+    # Mensaje 2: lo que incluye. Si el producto tiene "manuales" (con
+    # título, autor y link de adelanto), se usa ese formato; si además
+    # tiene "regalo_sorpresa" (libros extra que no se mencionan en la
+    # publicidad), se agregan al final como sorpresa. Si el producto no
+    # tiene "manuales" en absoluto (ej: una cuenta/suscripción), se usa
+    # "que_incluye" en su lugar.
+    if producto.get("manuales"):
         lineas = [f"📚 *Esto es lo que te llevás:*\n"]
         for i, manual in enumerate(producto["manuales"], start=1):
             lineas.append(f"{i}️⃣ *{manual['titulo']}* ({manual['autor']})")
             lineas.append(f"👉 {manual['link']}\n")
+        if producto.get("regalo_sorpresa"):
+            lineas.append("🎁 *Y de regalo, además, te llevás:*\n")
+            for regalo in producto["regalo_sorpresa"]:
+                lineas.append(f"🎁 {regalo}")
+        enviar_mensaje_texto(to, "\n".join(lineas))
+    elif producto.get("que_incluye"):
+        lineas = [f"✨ *¿Qué incluye tu plan?*\n"]
+        for item in producto["que_incluye"]:
+            lineas.append(f"✅ {item}")
         enviar_mensaje_texto(to, "\n".join(lineas))
     time.sleep(PAUSA)
 
@@ -1411,6 +1417,17 @@ def enviar_botones_pack(to, clave, texto="¿Cómo querés avanzar?", incluir_ver
 def _texto_detalle_manuales(clave):
     producto = PRODUCTOS[clave]
 
+    if producto.get("manuales"):
+        lineas = [f"📖 *Contenido del {producto['titulo']}*:\n"]
+        for i, manual in enumerate(producto["manuales"], start=1):
+            lineas.append(f"{i}️⃣ *{manual['titulo']}* ({manual['autor']})\n👉 *Ver adelanto:* {manual['link']}\n")
+        if producto.get("regalo_sorpresa"):
+            lineas.append("🎁 *Y de regalo, además, te llevás:*\n")
+            for regalo in producto["regalo_sorpresa"]:
+                lineas.append(f"🎁 {regalo}")
+        lineas.append(f"\n💰 *Precio promocional:* {producto['precio']}")
+        return "\n".join(lineas)
+
     # Si el producto tiene "que_incluye" (una lista de beneficios, para
     # productos que no son PDFs/manuales), se arma el texto con eso.
     if producto.get("que_incluye"):
@@ -1420,11 +1437,7 @@ def _texto_detalle_manuales(clave):
         lineas.append(f"\n💰 *Precio:* {producto['precio']}")
         return "\n".join(lineas)
 
-    lineas = [f"📖 *Contenido del {producto['titulo']}*:\n"]
-    for i, manual in enumerate(producto["manuales"], start=1):
-        lineas.append(f"{i}️⃣ *{manual['titulo']}* ({manual['autor']})\n👉 *Ver adelanto:* {manual['link']}\n")
-    lineas.append(f"💰 *Precio promocional:* {producto['precio']}")
-    return "\n".join(lineas)
+    return f"💰 *Precio:* {producto['precio']}"
 
 
 def _enviar_interactivo(to, payload, texto_para_guardar):
