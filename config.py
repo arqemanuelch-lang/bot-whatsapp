@@ -232,6 +232,48 @@ PRODUCTOS = {
         "emoji_ficha": "🤖",
         "manuales": [],  # se deja vacío: este producto no usa manuales/PDFs
     },
+    "mega_pack_medicina": {
+        "titulo": "Mega Pack Medicina",
+        "descripcion_corta": "Anatomía, farmacología, +20 manuales y más",
+        "precio": "$14.999",
+        "precio_oferta": "$14.999",
+        "precio_valor": 14999,
+        "imagen": "https://i.ibb.co/Vpr3Wm2W/1.jpg",
+        # Galería de 10 capturas reales del contenido, se mandan todas en
+        # secuencia en la ficha (en vez de una sola imagen de portada).
+        "galeria": [
+            "https://i.ibb.co/Vpr3Wm2W/1.jpg",
+            "https://i.ibb.co/8gNS081J/2.jpg",
+            "https://i.ibb.co/5hCHKfnN/3.jpg",
+            "https://i.ibb.co/d4VJL1j4/4.jpg",
+            "https://i.ibb.co/mFgpHswY/5.jpg",
+            "https://i.ibb.co/MTB6n1s/6.jpg",
+            "https://i.ibb.co/CSr0Nm4/7.jpg",
+            "https://i.ibb.co/rNhCGgy/8.jpg",
+            "https://i.ibb.co/FbhtbvfP/9.jpg",
+            "https://i.ibb.co/21mVNZBG/11.jpg",
+        ],
+        # Carpeta con todo el contenido (esquemas, libros, atlas, flashcards).
+        # Se manda este link único cuando se confirma el pago.
+        "link_carpeta_final": "https://drive.google.com/drive/folders/1tXkVWZ4Z6sMYf0QFBKBVOlfZ0AuVNJZd?usp=sharing",
+        "que_incluye": [
+            "Más de 1.100 esquemas ilustrados de las principales áreas médicas",
+            "Más de 1.000 libros de medicina en PDF",
+            "Atlas médicos ilustrados y manuales prácticos",
+            "Resúmenes clínicos organizados por sistemas",
+            "Guías farmacológicas por área y sketches premium",
+            "Flashcards interactivas para repasar rápido",
+            "Contenido base: Anatomía, Bioquímica, Cirugía, Farmacología y Fisiología",
+            "20 manuales completos: Cardiología, Cirugía General, Dermatología, "
+            "Endocrinología, Gastroenterología, Geriatría, Ginecología y Obstetricia, "
+            "Hematología, Infectología, Manejo Avanzado en Trauma, Nefrología, "
+            "Neumología y Cirugía Torácica, Neurología, Oftalmología, "
+            "Otorrinolaringología, Pediatría, Psiquiatría, Reumatología, "
+            "Traumatología y Ortopedia, y Urología",
+        ],
+        "emoji_ficha": "⚕️",
+        "manuales": [],  # se deja vacío: este producto usa "que_incluye" en vez de manuales con preview
+    },
 }
 
 
@@ -282,5 +324,14 @@ PALABRAS_POR_PRODUCTO = {
         "cuenta gemini",
         "gemini pro",
         "ai pro",
+    ],
+    "mega_pack_medicina": [
+        "medicina",
+        "mega pack medicina",
+        "kit de medicina",
+        "kit medicina",
+        "anatomia",
+        "manuales de medicina",
+        "medicina digital",
     ],
 }
