@@ -173,9 +173,9 @@ PRODUCTOS = {
     "manifestacion_33_dias": {
         "titulo": "Pack Manifestación Premium (3 Libros + Regalos)",
         "descripcion_corta": "3 libros + 2 de regalo, en PDF/epub",
-        "precio": "$7.500",
-        "precio_oferta": "$7.500",
-        "precio_valor": 7500,
+        "precio": "$5.500",
+        "precio_oferta": "$5.500",
+        "precio_valor": 5500,
         "imagen": "https://i.ibb.co/Ngkpy6Lp/f21261a8-0358-4b93-88b6-6049d2a83ee8.jpg",
         "imagen_oferta": "https://i.ibb.co/DfQc5Yr2/333.png",
         "mostrar_dos_imagenes": True,  # este producto manda las 2 imágenes juntas en la ficha inicial
@@ -209,6 +209,21 @@ PRODUCTOS = {
         "precio_oferta": "$15.990",
         "precio_valor": 15990,
         "imagen": "https://i.ibb.co/ymjhb3TF/Sin-t-tulo-1080-x-1920-px-1080-x-1080-px-1.png",
+        # Mensajes personalizados (con más gancho/urgencia) para este
+        # producto, en vez de usar la plantilla genérica.
+        "saludo": (
+            "🎉 ¡Genial que quieras aprovechar la oferta de *Gemini AI Pro*! "
+            "Ya diste el primer paso para tener la IA más avanzada de Google "
+            "trabajando para vos. Te cuento todo lo que te llevás 👇"
+        ),
+        "mensaje_precio": (
+            "💰 *Precio:* $15.990 (pago único, sin mensualidades)\n"
+            "🛡️ Con garantía durante los 18 meses de tu suscripción.\n\n"
+            "⏰ Cupos limitados — activamos tu cuenta el mismo día que "
+            "confirmamos el pago.\n\n"
+            "Si querés asegurar la tuya, escribí *ALIAS* y te paso los datos "
+            "para transferir. 👇"
+        ),
         # Este producto se entrega A MANO (usuario/contraseña por WhatsApp),
         # no tiene link de Drive ni carpeta. "entrega_manual" le avisa al
         # motor (bot.py) que, al aprobar el pago, mande el mensaje de abajo
