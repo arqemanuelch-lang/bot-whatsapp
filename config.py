@@ -178,7 +178,8 @@ PRODUCTOS = {
         "precio_valor": 5500,
         "imagen": "https://i.ibb.co/Ngkpy6Lp/f21261a8-0358-4b93-88b6-6049d2a83ee8.jpg",
         "imagen_oferta": "https://i.ibb.co/DfQc5Yr2/333.png",
-        "mostrar_dos_imagenes": True,  # este producto manda las 2 imágenes juntas en la ficha inicial
+        "mostrar_dos_imagenes": False,  # desactivado por ahora, no manda ninguna imagen
+        "sin_imagen": True,  # por ahora este producto no manda imagen en la ficha
         # Carpeta con los 5 archivos (los 3 principales + los 2 de regalo).
         # Se manda este link único cuando se confirma el pago.
         "link_carpeta_final": "https://drive.google.com/drive/folders/1UEKFVOzt_hYG7p2a7UVfBhC0-SfVbOYI?usp=sharing",
