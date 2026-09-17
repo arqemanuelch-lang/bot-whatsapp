@@ -130,14 +130,18 @@ def programar_recordatorio_compra(numero, clave):
         producto = PRODUCTOS.get(clave)
         if not producto:
             return
-        cantidad_m = len(producto["manuales"])
-        completo_s = "completo" if cantidad_m == 1 else "completos"
-        listo_s = "listo" if cantidad_m == 1 else "listos"
+        cantidad_m = len(producto.get("manuales", []))
+        if cantidad_m > 0:
+            completo_s = "completo" if cantidad_m == 1 else "completos"
+            listo_s = "listo" if cantidad_m == 1 else "listos"
+            texto_contenido = f"{_texto_cantidad_manuales(producto)} {completo_s}, {listo_s} para descargar. 📚"
+        else:
+            texto_contenido = "todo el contenido, listo para vos. 📚"
         _armar_recordatorio(
             numero, clave,
             f"👋 ¿Seguís pensando en el *{producto['titulo']}*?\n\n"
             f"Te lo dejamos por solo *{producto['precio']}*: "
-            f"{_texto_cantidad_manuales(producto)} {completo_s}, {listo_s} para descargar. 📚\n\n"
+            f"{texto_contenido}\n\n"
             "Cuando quieras avanzar, tocá el botón de abajo 👇",
         )
 
@@ -783,7 +787,7 @@ def receive_message():
                 clave_producto_actual = PRODUCTO_ACTUAL.get(from_number, next(iter(PRODUCTOS)))
                 enviar_notificacion_telegram_comprobante(from_number, comprobante_id, clave_producto_actual)
                 producto_actual = PRODUCTOS.get(clave_producto_actual, {})
-                texto_cantidad = _texto_cantidad_manuales(producto_actual) if producto_actual else "los manuales"
+                texto_cantidad = _texto_entrega(producto_actual) if producto_actual else "tu compra"
                 enviar_mensaje_texto(
                     from_number,
                     "¡Recibimos tu comprobante! 📎 En breve lo revisamos y te enviamos "
@@ -972,6 +976,18 @@ def _texto_cantidad_manuales(producto):
     return "el manual" if cantidad == 1 else f"los {cantidad} manuales"
 
 
+def _texto_entrega(producto):
+    """Devuelve la frase correcta para 'te mando ___ al instante', según el
+    tipo de producto: cuenta (entrega manual), manuales/PDFs con cantidad,
+    o un pack genérico (que_incluye) sin manuales individuales."""
+    if producto.get("entrega_manual"):
+        return "tus datos de acceso"
+    cantidad = len(producto.get("manuales", []))
+    if cantidad > 0:
+        return _texto_cantidad_manuales(producto)
+    return "todo el contenido"
+
+
 def _normalizar(texto):
     """Pasa a minúsculas y saca tildes, para que 'información' e 'informacion' matcheen igual."""
     texto = texto.strip().lower()
@@ -1097,7 +1113,7 @@ def _enviar_flujo_compra(numero, clave):
 
     # La imagen del banner de oferta va PRIMERO que todo (sin caption: el
     # texto va aparte, así si la imagen falla, los mensajes igual llegan).
-    imagen_oferta = producto.get("imagen_oferta")
+    imagen_oferta = producto.get("imagen_oferta") or producto.get("imagen")
     if imagen_oferta:
         enviar_imagen(numero, imagen_oferta)
         time.sleep(PAUSA_ENTRE_MENSAJES)
@@ -1105,25 +1121,43 @@ def _enviar_flujo_compra(numero, clave):
     # Mensaje 1: la oferta con la urgencia de 1 hora (precio de oferta,
     # distinto del precio "normal" que se muestra en la ficha inicial).
     precio_oferta = producto.get("precio_oferta", producto["precio"])
-    cantidad_m1 = len(producto["manuales"])
-    tecnico_s = "técnico" if cantidad_m1 == 1 else "técnicos"
+    cantidad_m1 = len(producto.get("manuales", []))
+    if cantidad_m1 > 0:
+        tecnico_s = "técnico" if cantidad_m1 == 1 else "técnicos"
+        texto_intro_oferta = f"con {_texto_cantidad_manuales(producto)} {tecnico_s}, "
+    else:
+        texto_intro_oferta = ""
     enviar_mensaje_texto(
         numero,
         "🔥 *¡Oferta imperdible por 1 hora!* 🔥\n\n"
-        f"El *{producto['titulo']}* completo, con {_texto_cantidad_manuales(producto)} "
-        f"{tecnico_s}, hoy te sale solo *{precio_oferta}*.\n\n"
+        f"El *{producto['titulo']}* completo, {texto_intro_oferta}"
+        f"hoy te sale solo *{precio_oferta}*.\n\n"
         "Esta promo vence en 1 hora, así que si te interesa, aprovechala ahora. 👇",
     )
     time.sleep(PAUSA_ENTRE_MENSAJES)
 
-    # Mensaje 2: la lista de los libros que incluye.
-    lineas_libros = [f"📚 *Esto es lo que te llevás:*\n"]
-    for i, manual in enumerate(producto["manuales"], start=1):
-        lineas_libros.append(f"{i}️⃣ {manual['titulo']} ({manual['autor']})")
-    enviar_mensaje_texto(numero, "\n".join(lineas_libros))
-    time.sleep(PAUSA_ENTRE_MENSAJES)
+    # Mensaje 2: lo que incluye. Usa "manuales" (+ "regalo_sorpresa" si
+    # existe) o "que_incluye", según cómo esté armado el producto — mismo
+    # criterio que en la ficha inicial (_enviar_secuencia_ficha).
+    if producto.get("manuales"):
+        lineas_libros = [f"📚 *Esto es lo que te llevás:*\n"]
+        for i, manual in enumerate(producto["manuales"], start=1):
+            lineas_libros.append(f"{i}️⃣ {manual['titulo']} ({manual['autor']})")
+        if producto.get("regalo_sorpresa"):
+            lineas_libros.append("\n🎁 *Y de regalo, además:*")
+            for regalo in producto["regalo_sorpresa"]:
+                lineas_libros.append(f"🎁 {regalo}")
+        enviar_mensaje_texto(numero, "\n".join(lineas_libros))
+        time.sleep(PAUSA_ENTRE_MENSAJES)
+    elif producto.get("que_incluye"):
+        lineas_libros = [f"✨ *¿Qué incluye?*\n"]
+        for item in producto["que_incluye"]:
+            lineas_libros.append(f"✅ {item}")
+        enviar_mensaje_texto(numero, "\n".join(lineas_libros))
+        time.sleep(PAUSA_ENTRE_MENSAJES)
 
     # Mensaje 3: los datos para transferir.
+    texto_entrega = _texto_entrega(producto)
     enviar_mensaje_texto(
         numero,
         "💸 *Podés abonar por transferencia o Lemon:*\n\n"
@@ -1132,7 +1166,7 @@ def _enviar_flujo_compra(numero, clave):
         f"👉 *Lemontag:* `{DATOS_TRANSFERENCIA['lemontag']}`\n"
         f"👤 *Titular:* {DATOS_TRANSFERENCIA['titular']}\n\n"
         "📩 Una vez realizado el pago, enviame el comprobante (foto o PDF) acá mismo "
-        "en el chat y te mando los manuales al instante.",
+        f"en el chat y te mando {texto_entrega} al instante.",
     )
     time.sleep(PAUSA_ENTRE_MENSAJES)
 
@@ -1192,8 +1226,7 @@ def manejar_boton(from_number, opcion_id):
         # sin imagen. La secuencia con imagen/banner queda reservada para
         # el recordatorio automático de 1 hora, si la persona no compra en
         # ese tiempo (ver programar_recordatorio_compra).
-        cantidad = len(producto["manuales"])
-        texto_cantidad = "el manual" if cantidad == 1 else f"los {cantidad} manuales"
+        texto_cantidad = _texto_entrega(producto)
         enviar_mensaje_texto(
             from_number,
             "🎉 ¡Excelente decisión! Podés abonar por "
@@ -1227,6 +1260,11 @@ def manejar_boton(from_number, opcion_id):
             },
         }
         _enviar_interactivo(from_number, payload_ya_pague, "Cuando termines de pagar, tocá el botón 👇")
+
+        # Activamos el recordatorio automático (3 min y 1 hora) también acá,
+        # para cuando alguien pide directamente el ALIAS (sin pasar antes
+        # por la ficha del producto) y después no llega a pagar.
+        programar_recordatorio_compra(from_number, clave)
 
     elif accion == "ya_pague" and clave in PRODUCTOS:
         enviar_mensaje_texto(
@@ -1300,10 +1338,13 @@ def _enviar_secuencia_ficha(to, clave):
     # Por defecto, cada producto manda UNA sola imagen en la ficha (prioriza
     # la de oferta si existe, si no la de portada) — así se comportaba el
     # Kit Maestro desde el principio y no lo tocamos.
-    # Si un producto tiene "galeria" (una lista de varias imágenes, ej:
-    # capturas reales del contenido), se mandan TODAS en secuencia.
+    # Si un producto tiene "sin_imagen": True, no manda ninguna imagen.
+    # Si tiene "galeria" (una lista de varias imágenes, ej: capturas reales
+    # del contenido), se mandan TODAS en secuencia.
     # Si tiene "mostrar_dos_imagenes": True, se mandan portada + oferta.
-    if producto.get("galeria"):
+    if producto.get("sin_imagen"):
+        pass  # no se manda ninguna imagen para este producto
+    elif producto.get("galeria"):
         for imagen_url in producto["galeria"]:
             enviar_imagen(to, imagen_url)
             time.sleep(PAUSA)
@@ -1324,15 +1365,18 @@ def _enviar_secuencia_ficha(to, clave):
             enviar_imagen(to, imagen_url)
             time.sleep(PAUSA)
 
-    # Mensaje 1: saludo, agradeciendo el interés. El emoji se puede
-    # personalizar por producto con "emoji_ficha" en config.py (si no se
-    # define, usa 🏗️ por default, pensado originalmente para el Kit Maestro).
-    emoji_producto = producto.get("emoji_ficha", "🏗️")
-    enviar_mensaje_texto(
-        to,
-        f"¡Hola! 👋 Gracias por tu interés en nuestro *{producto['titulo']}* {emoji_producto}\n\n"
-        "¡Excelente elección! Te cuento todo lo que incluye.",
-    )
+    # Mensaje 1: saludo, agradeciendo el interés. Si el producto tiene
+    # "saludo" en config.py, se usa ese texto tal cual (personalizado).
+    # Si no, se arma con la plantilla genérica de siempre.
+    if producto.get("saludo"):
+        enviar_mensaje_texto(to, producto["saludo"])
+    else:
+        emoji_producto = producto.get("emoji_ficha", "🏗️")
+        enviar_mensaje_texto(
+            to,
+            f"¡Hola! 👋 Gracias por tu interés en nuestro *{producto['titulo']}* {emoji_producto}\n\n"
+            "¡Excelente elección! Te cuento todo lo que incluye.",
+        )
     time.sleep(PAUSA)
 
     # Mensaje 2: lo que incluye. Si el producto tiene "manuales" (con
@@ -1358,13 +1402,18 @@ def _enviar_secuencia_ficha(to, clave):
         enviar_mensaje_texto(to, "\n".join(lineas))
     time.sleep(PAUSA)
 
-    # Mensaje 3: precio + instrucción para comprar escribiendo "ALIAS".
-    enviar_mensaje_texto(
-        to,
-        f"💰 *Precio:* {producto['precio']}\n\n"
-        "Si querés adquirir el pack, escribí *ALIAS* y te paso todos los datos "
-        "para transferir. 👇",
-    )
+    # Mensaje 3: precio + instrucción para comprar. Si el producto tiene
+    # "mensaje_precio" en config.py, se usa ese texto tal cual
+    # (personalizado). Si no, se arma con la plantilla genérica de siempre.
+    if producto.get("mensaje_precio"):
+        enviar_mensaje_texto(to, producto["mensaje_precio"])
+    else:
+        enviar_mensaje_texto(
+            to,
+            f"💰 *Precio:* {producto['precio']}\n\n"
+            "Si querés adquirir el pack, escribí *ALIAS* y te paso todos los datos "
+            "para transferir. 👇",
+        )
 
     # Si en 3 minutos / 1 hora no escribe nada más, le mandamos un recordatorio.
     programar_recordatorio_compra(to, clave)
