@@ -61,8 +61,8 @@ DATOS_TRANSFERENCIA = {
 # ---------------------------------------------------------------------
 PROMPT_SISTEMA_IA = (
     "Sos un asistente de ventas por WhatsApp para Droply IA, un negocio que vende "
-    "productos digitales: el Kit Maestro de Arquitectura y Construcción (8 manuales "
-    "técnicos en PDF), el Pack Manifestación Premium (3 libros + regalos), el Mega Pack "
+    "productos digitales: el Kit Maestro de Arquitectura y Construcción (7 manuales "
+    "técnicos en PDF + 2 de regalo), el Pack Manifestación Premium (3 libros + regalos), el Mega Pack "
     "Medicina (manuales y material de medicina) y la cuenta Gemini AI Pro (18 meses). "
     "Respondé breve, claro y amable en español. Si no sabés bien qué producto le "
     "interesa al cliente, preguntale directamente. Orientalo a escribir el nombre "
@@ -141,7 +141,7 @@ FRASES_ASESOR = [
 PRODUCTOS = {
     "kit_maestro": {
         "titulo": "Kit Maestro de Arquitectura y Construcción",
-        "descripcion_corta": "8 manuales técnicos en PDF",
+        "descripcion_corta": "7 manuales técnicos en PDF + 2 de regalo",
         "precio": "$6.000",
         "precio_oferta": "$6.000",
         "precio_valor": 6000,  # el mismo precio, pero como número (lo necesita Mercado Pago)
@@ -149,26 +149,29 @@ PRODUCTOS = {
         "imagen": "https://i.ibb.co/R40sSbHt/Sin-t-tulo-1080-1920-px-1080-x-1080-px-1080-x-1920-px-1080-x-1350-px-1.png",
         "imagen_oferta": "https://i.ibb.co/Xxj34Py5/bdb49a96-6a16-459f-bde7-bf4ceedb98db.jpg",
         # Carpeta de Google Drive con TODOS los manuales completos. Se manda
-        # este único link cuando se confirma el pago (en vez de los 8 links
+        # este único link cuando se confirma el pago (en vez de los links
         # individuales de cada manual, que son solo para "ver adelanto").
         "link_carpeta_final": "https://drive.google.com/drive/folders/1YwPEiA5UWOl60GIg_8YYxxVpWaaO6MSw?usp=sharing",
         "manuales": [
             {"titulo": "Manual de Autoconstrucción", "autor": "Carlos Rodríguez",
-             "link": "https://drive.google.com/file/d/1mrDPUpwSZQGGMlnNQjfqfb4HZSmyzM8Z/view?usp=sharing"},
+             "link": "https://drive.google.com/file/d/1sbUe7XD2FRM5A-f2I6opXDoMF9y2gO1Q/view?usp=sharing"},
             {"titulo": "Manual del Arquitecto Descalzo", "autor": "Johan van Lengen",
-             "link": "https://drive.google.com/file/d/1Frt11sp21g3K9XVFIS9bl4UWHFaqlHBr/view?usp=sharing"},
+             "link": "https://drive.google.com/file/d/1MhPK80rcTAnvZwbo2wv1wXAyxsrAgTFb/view?usp=sharing"},
             {"titulo": "Cómo se proyecta una Vivienda", "autor": "J.L. Moia",
-             "link": "https://drive.google.com/file/d/1pqPtuABMWT9a8ZrTJI3vug5QnWXKeRK8/view?usp=sharing"},
+             "link": "https://drive.google.com/file/d/114PXZLc-QRsfuEF3eSVSMlWEq_ICbJgQ/view?usp=sharing"},
             {"titulo": "Método práctico para la elaboración de presupuestos de construcción", "autor": "Arq. William García",
-             "link": "https://drive.google.com/file/d/13RHkws8YJRqs-JUzCUyDFXZaI2Plb11r/view?usp=sharing"},
+             "link": "https://drive.google.com/file/d/1kfJe0vmQtXBl3p_mJ39kkU0GU-OwUDst/view?usp=sharing"},
             {"titulo": "Curso Básico de Instalaciones Eléctricas", "autor": "Juan Carlos Calloni",
-             "link": "https://drive.google.com/file/d/1StiV43-8ul03LMp4S4P5CfJ4vkqDCRF_/view?usp=sharing"},
+             "link": "https://drive.google.com/file/d/1ETqTBa_nxWLigyHmQY8mvoeqqS49AIH3/view?usp=sharing"},
             {"titulo": "Instalaciones Sanitarias", "autor": "Jorge Ortíz",
-             "link": "https://drive.google.com/file/d/1g38yi6nnoD1qvnwwtM9OEoQAZ6e83rUF/view?usp=sharing"},
+             "link": "https://drive.google.com/file/d/1rd-tAxh3Qk8wcp-6TlFmzpjwzs25SEdA/view?usp=sharing"},
             {"titulo": "Manual de Instalaciones Hidráulicas, Sanitarias, Aire, Gas y Vapor", "autor": "Ing. Sergio Zepeda C.",
-             "link": "https://drive.google.com/file/d/1sbxMifwHQd9i0ZO8UWdUVMgPQnUM5l2a/view?usp=sharing"},
-            {"titulo": "Manual Práctico de Instalaciones Sanitarias: Tomo 2", "autor": "Nisnovich, Castro, Lázaro",
-             "link": "https://drive.google.com/file/d/1dQQC9-GfUjkS-GTAfzL8x1_G4A15k1GO/view?usp=sharing"},
+             "link": "https://drive.google.com/file/d/1ooDTnZyEAWwz_SeKjRxgps9N7FhwWiPS/view?usp=sharing"},
+        ],
+        # Libros de REGALO: están en la carpeta final, no tienen adelanto.
+        "regalo_sorpresa": [
+            "Instalación eléctrica monofásica en viviendas — Ing. César Aníbal Rey",
+            "Manual para el Técnico Instalador Electricista Domiciliario",
         ],
     },
     "manifestacion_33_dias": {
