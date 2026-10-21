@@ -62,7 +62,7 @@ DATOS_TRANSFERENCIA = {
 PROMPT_SISTEMA_IA = (
     "Sos un asistente de ventas por WhatsApp para Droply IA, un negocio que vende "
     "productos digitales. Hoy vende un solo producto: el Kit Maestro de Arquitectura y "
-    "Construcción (7 manuales técnicos en PDF + 2 de regalo, $6.000). "
+    "Construcción (7 manuales técnicos en PDF, $6.000). "
     "Respondé breve, claro y amable en español. Si el cliente pregunta por algo que no "
     "sea el Kit Maestro, decile que por ahora ese es el único producto disponible. "
     "Orientalo a escribir *kit maestro* para que el sistema le muestre la ficha completa."
@@ -140,7 +140,7 @@ FRASES_ASESOR = [
 PRODUCTOS = {
     "kit_maestro": {
         "titulo": "Kit Maestro de Arquitectura y Construcción",
-        "descripcion_corta": "7 manuales técnicos en PDF + 2 de regalo",
+        "descripcion_corta": "7 manuales técnicos en PDF",
         "precio": "$6.000",
         "precio_oferta": "$6.000",
         "precio_valor": 6000,  # el mismo precio, pero como número (lo necesita Mercado Pago)
@@ -152,25 +152,20 @@ PRODUCTOS = {
         # individuales de cada manual, que son solo para "ver adelanto").
         "link_carpeta_final": "https://drive.google.com/drive/folders/1YwPEiA5UWOl60GIg_8YYxxVpWaaO6MSw?usp=sharing",
         "manuales": [
+            {"titulo": "Cómo se proyecta una Vivienda", "autor": "J.L. Moia",
+             "link": "https://drive.google.com/file/d/114PXZLc-QRsfuEF3eSVSMlWEq_ICbJgQ/view?usp=sharing"},
+            {"titulo": "Manual de Instalaciones Hidráulicas, Sanitarias, Aire, Gas y Vapor", "autor": "Ing. Sergio Zepeda C.",
+             "link": "https://drive.google.com/file/d/1ooDTnZyEAWwz_SeKjRxgps9N7FhwWiPS/view?usp=sharing"},
+            {"titulo": "Método práctico para la elaboración de presupuestos de construcción", "autor": "Arq. William García",
+             "link": "https://drive.google.com/file/d/1kfJe0vmQtXBl3p_mJ39kkU0GU-OwUDst/view?usp=sharing"},
             {"titulo": "Manual de Autoconstrucción", "autor": "Carlos Rodríguez",
              "link": "https://drive.google.com/file/d/1sbUe7XD2FRM5A-f2I6opXDoMF9y2gO1Q/view?usp=sharing"},
             {"titulo": "Manual del Arquitecto Descalzo", "autor": "Johan van Lengen",
              "link": "https://drive.google.com/file/d/1MhPK80rcTAnvZwbo2wv1wXAyxsrAgTFb/view?usp=sharing"},
-            {"titulo": "Cómo se proyecta una Vivienda", "autor": "J.L. Moia",
-             "link": "https://drive.google.com/file/d/114PXZLc-QRsfuEF3eSVSMlWEq_ICbJgQ/view?usp=sharing"},
-            {"titulo": "Método práctico para la elaboración de presupuestos de construcción", "autor": "Arq. William García",
-             "link": "https://drive.google.com/file/d/1kfJe0vmQtXBl3p_mJ39kkU0GU-OwUDst/view?usp=sharing"},
             {"titulo": "Curso Básico de Instalaciones Eléctricas", "autor": "Juan Carlos Calloni",
              "link": "https://drive.google.com/file/d/1ETqTBa_nxWLigyHmQY8mvoeqqS49AIH3/view?usp=sharing"},
             {"titulo": "Instalaciones Sanitarias", "autor": "Jorge Ortíz",
              "link": "https://drive.google.com/file/d/1rd-tAxh3Qk8wcp-6TlFmzpjwzs25SEdA/view?usp=sharing"},
-            {"titulo": "Manual de Instalaciones Hidráulicas, Sanitarias, Aire, Gas y Vapor", "autor": "Ing. Sergio Zepeda C.",
-             "link": "https://drive.google.com/file/d/1ooDTnZyEAWwz_SeKjRxgps9N7FhwWiPS/view?usp=sharing"},
-        ],
-        # Libros de REGALO: están en la carpeta final, no tienen adelanto.
-        "regalo_sorpresa": [
-            "Instalación eléctrica monofásica en viviendas — Ing. César Aníbal Rey",
-            "Manual para el Técnico Instalador Electricista Domiciliario",
         ],
     },
 }
