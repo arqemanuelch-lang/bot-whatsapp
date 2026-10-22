@@ -61,11 +61,11 @@ DATOS_TRANSFERENCIA = {
 # ---------------------------------------------------------------------
 PROMPT_SISTEMA_IA = (
     "Sos un asistente de ventas por WhatsApp para Droply IA, un negocio que vende "
-    "productos digitales. Hoy vende un solo producto: el Kit Maestro de Arquitectura y "
-    "Construcción (7 manuales técnicos en PDF, $6.000). "
+    "productos digitales. Hoy vende: el Kit Maestro de Arquitectura y "
+    "Construcción (7 manuales técnicos en PDF, $6.000) y el Pack Retro Games (juegos clásicos para el celular, $3.000). "
     "Respondé breve, claro y amable en español. Si el cliente pregunta por algo que no "
-    "sea el Kit Maestro, decile que por ahora ese es el único producto disponible. "
-    "Orientalo a escribir *kit maestro* para que el sistema le muestre la ficha completa."
+    "sea uno de esos dos productos, decile que por ahora solo están esos dos. "
+    "Orientalo a escribir el nombre del producto (*kit maestro* o *retro games*) para que el sistema le muestre la ficha completa."
 )
 
 
@@ -140,14 +140,14 @@ FRASES_ASESOR = [
 PRODUCTOS = {
     "kit_maestro": {
         "titulo": "Kit Maestro de Arquitectura y Construcción",
+        "titulo_boton": "Kit Maestro",  # texto del botón en el menú (máx. 20 caracteres)
         "descripcion_corta": "7 manuales técnicos en PDF",
         "precio": "$6.000",
         "precio_oferta": "$6.000",
         "precio_valor": 6000,  # el mismo precio, pero como número (lo necesita Mercado Pago)
         "link_pago": "https://mpago.la/17uyqFK",
-        "sin_imagen": True,  # por ahora el Kit no manda ninguna imagen en la ficha
-        "imagen": "https://i.ibb.co/R40sSbHt/Sin-t-tulo-1080-1920-px-1080-x-1080-px-1080-x-1920-px-1080-x-1350-px-1.png",
-        "imagen_oferta": "https://i.ibb.co/Xxj34Py5/bdb49a96-6a16-459f-bde7-bf4ceedb98db.jpg",
+        "imagen": "https://i.ibb.co/zTd7PcQJ/a722ab83-e521-4fef-b680-54e6a8b847b7.png",
+        "imagen_oferta": "https://i.ibb.co/zTd7PcQJ/a722ab83-e521-4fef-b680-54e6a8b847b7.png",
         # Carpeta de Google Drive con TODOS los manuales completos. Se manda
         # este único link cuando se confirma el pago (en vez de los links
         # individuales de cada manual, que son solo para "ver adelanto").
@@ -168,6 +168,51 @@ PRODUCTOS = {
             {"titulo": "Instalaciones Sanitarias", "autor": "Jorge Ortíz",
              "link": "https://drive.google.com/file/d/1rd-tAxh3Qk8wcp-6TlFmzpjwzs25SEdA/view?usp=sharing"},
         ],
+    },
+    "pack_retro_games": {
+        "titulo": "Pack Retro Games — Juegos Clásicos para tu Celular",
+        "titulo_boton": "Pack Retro Games",
+        "descripcion_corta": "Arcade y consolas clásicas, listos para jugar",
+        "precio": "$3.000",
+        "precio_oferta": "$3.000",
+        "precio_valor": 3000,
+        "imagen": "https://i.ibb.co/chHf0R6Q/cf1c03b1-1b60-4da4-a90e-ecdebe5ccf99-1.png",
+        "imagen_oferta": "https://i.ibb.co/chHf0R6Q/cf1c03b1-1b60-4da4-a90e-ecdebe5ccf99-1.png",
+        "emoji_ficha": "🎮",
+        # Carpeta de Drive con todo el pack. Se manda este link único cuando
+        # se confirma el pago.
+        "link_carpeta_final": "https://drive.google.com/drive/folders/1_LnUPbe7YTVMEZDkXP4vpWgAJVNIp5h4?usp=sharing",
+        "que_incluye": [
+            "Juegos clásicos de arcade y consolas retro para revivir la infancia",
+            "Emulador incluido, con control táctil en pantalla",
+            "Jugás directo en tu celular, sin cables ni consola",
+            "Funciona en todo tipo de dispositivos",
+            "Instrucciones paso a paso para instalarlo",
+            "Acceso inmediato después de confirmar el pago",
+        ],
+        "manuales": [],  # este producto no usa manuales/PDFs
+    },
+}
+
+
+# ---------------------------------------------------------------------
+# 5.1) PROMOS POR TIEMPO LIMITADO
+#      ----------------------------------------------------------------
+#      Mientras la promo está vigente, el bot usa el precio de la promo y
+#      muestra el regalo sorpresa. Cuando pasa la fecha "hasta" (inclusive,
+#      hora de Argentina), vuelve SOLO al precio normal de PRODUCTOS.
+#      Para terminar la promo antes: borrá el bloque o poné una fecha pasada.
+#      OJO: el regalo tiene que estar de verdad dentro de la carpeta de
+#      entrega del producto.
+# ---------------------------------------------------------------------
+PROMOS = {
+    "kit_maestro": {
+        "hasta": "2026-10-22",          # formato AAAA-MM-DD, vale hasta las 23:59
+        "precio": "$5.500",
+        "precio_valor": 5500,
+        "precio_normal": "$6.000",      # se muestra tachado como referencia
+        "regalo": "Un plus sorpresa que descubrís al recibir tu pack",
+        "aviso": "⏰ Promo válida solo hoy",
     },
 }
 
@@ -203,5 +248,15 @@ PALABRAS_POR_PRODUCTO = {
         "pack arquitectura",
         "manuales de construccion",
         "arquitectura y construccion",
+    ],
+    "pack_retro_games": [
+        "retro",
+        "retro games",
+        "pack retro",
+        "juegos retro",
+        "juegos clasicos",
+        "arcade",
+        "emulador",
+        "juegos para el celular",
     ],
 }
