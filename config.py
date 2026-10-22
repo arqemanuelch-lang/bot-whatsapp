@@ -145,6 +145,7 @@ PRODUCTOS = {
         "precio_oferta": "$6.000",
         "precio_valor": 6000,  # el mismo precio, pero como número (lo necesita Mercado Pago)
         "link_pago": "https://mpago.la/17uyqFK",
+        "sin_imagen": True,  # por ahora el Kit no manda ninguna imagen en la ficha
         "imagen": "https://i.ibb.co/R40sSbHt/Sin-t-tulo-1080-1920-px-1080-x-1080-px-1080-x-1920-px-1080-x-1350-px-1.png",
         "imagen_oferta": "https://i.ibb.co/Xxj34Py5/bdb49a96-6a16-459f-bde7-bf4ceedb98db.jpg",
         # Carpeta de Google Drive con TODOS los manuales completos. Se manda
