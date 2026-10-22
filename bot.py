@@ -7,7 +7,7 @@ import threading
 import time
 import unicodedata
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from flask import Flask, request, jsonify, render_template_string, redirect, session, send_from_directory
 
 # =====================================================================
@@ -26,6 +26,7 @@ from config import (
     PROMPT_SISTEMA_IA,
     PALABRAS_ACTIVADORAS,
     PRODUCTOS,
+    PROMOS,
     PALABRAS_POR_PRODUCTO,
     FRASES_VER_QUE_INCLUYE,
     FRASES_COMPRAR,
@@ -33,6 +34,54 @@ from config import (
 )
 
 app = Flask(__name__)
+
+
+# ---------------------------------------------------------------------
+# PROMOS por tiempo limitado (se definen en config.py, en PROMOS).
+# Se recalculan en cada mensaje que llega: mientras la promo está vigente
+# (hora de Argentina) se usa su precio y su regalo; al pasar la fecha, el
+# producto vuelve solo a su precio normal.
+# ---------------------------------------------------------------------
+_CAMPOS_PROMO = ("precio", "precio_oferta", "precio_valor", "regalo_sorpresa", "mensaje_precio")
+_SIN_VALOR = object()
+_BASE_PROMO = {
+    clave: {campo: PRODUCTOS[clave].get(campo, _SIN_VALOR) for campo in _CAMPOS_PROMO}
+    for clave in PROMOS
+    if clave in PRODUCTOS
+}
+
+
+def aplicar_promos():
+    hoy = datetime.now(timezone(timedelta(hours=-3))).date().isoformat()
+    for clave, promo in PROMOS.items():
+        producto = PRODUCTOS.get(clave)
+        if not producto:
+            continue
+
+        if hoy <= promo["hasta"]:
+            producto["precio"] = promo["precio"]
+            producto["precio_oferta"] = promo["precio"]
+            producto["precio_valor"] = promo["precio_valor"]
+            producto["regalo_sorpresa"] = [promo["regalo"]]
+            normal = promo.get("precio_normal")
+            precio_linea = (
+                f"💰 *Precio de HOY:* {promo['precio']}  (precio normal ~{normal}~)"
+                if normal
+                else f"💰 *Precio de HOY:* {promo['precio']}"
+            )
+            producto["mensaje_precio"] = (
+                f"{precio_linea}\n"
+                f"🎁 Y de regalo: {promo['regalo']}\n"
+                f"{promo.get('aviso', '')}\n\n"
+                "Si querés aprovecharlo, escribí *ALIAS* y te paso todos los datos "
+                "para transferir. 👇"
+            )
+        else:
+            for campo, valor in _BASE_PROMO.get(clave, {}).items():
+                if valor is _SIN_VALOR:
+                    producto.pop(campo, None)
+                else:
+                    producto[campo] = valor
 
 # ---------- Variables de entorno (se configuran en Render) ----------
 WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
@@ -716,6 +765,7 @@ def verificar_firma_meta(request_data_raw, firma_header):
 # =====================================================================
 @app.route("/webhook", methods=["POST"])
 def receive_message():
+    aplicar_promos()
     firma_header = request.headers.get("X-Hub-Signature-256")
     if not verificar_firma_meta(request.get_data(), firma_header):
         return "Invalid signature", 403
@@ -802,6 +852,7 @@ def receive_message():
 
 @app.route("/telegram_webhook", methods=["POST"])
 def telegram_webhook():
+    aplicar_promos()
     """Recibe las respuestas que mandás por Telegram. Si le respondiste
     ('Reply') a una notificación de un mensaje de WhatsApp, reenvía tu texto
     directo a ese cliente por WhatsApp."""
@@ -931,6 +982,7 @@ def telegram_webhook():
 
 @app.route("/webhook/mercadopago", methods=["POST", "GET"])
 def mercadopago_webhook():
+    aplicar_promos()
     """Mercado Pago avisa acá cada vez que hay novedades de un pago. Si el
     pago está aprobado y todavía no lo procesamos, le mandamos los
     manuales al cliente automáticamente, sin que nadie tenga que aprobar
@@ -1287,8 +1339,45 @@ def manejar_boton(from_number, opcion_id):
 
 
 def enviar_menu_productos(to):
-    """Menú principal: una fila por PACK (bloque), no por manual individual.
-    Si agregás un producto nuevo a PRODUCTOS, aparece acá solo."""
+    """Menú principal. Con hasta 3 productos manda UN solo mensaje: un texto
+    corto con cada producto (nombre, descripción y precio) y un botón por
+    producto, así el cliente elige con un solo toque (sin abrir una lista).
+    WhatsApp permite máximo 3 botones por mensaje; si algún día hay más de 3
+    productos, se usa automáticamente la lista desplegable de antes.
+    Si un producto tiene "titulo_boton" en config.py, se usa como texto del
+    botón (máx. 20 caracteres); si no, se recorta el título."""
+    if len(PRODUCTOS) <= 3:
+        lineas = [MENSAJE_BIENVENIDA_MENU, ""]
+        botones = []
+        for clave, producto in PRODUCTOS.items():
+            emoji = producto.get("emoji_ficha", "🏗️")
+            lineas.append(f"{emoji} *{producto['titulo']}*")
+            lineas.append(f"{producto['descripcion_corta']} · *{producto['precio']}*")
+            lineas.append("")
+            titulo_boton = producto.get("titulo_boton") or producto["titulo"]
+            botones.append(
+                {
+                    "type": "reply",
+                    "reply": {"id": f"ver_pack:{clave}", "title": titulo_boton[:20]},
+                }
+            )
+        lineas.append("Tocá el que te interesa 👇")
+        texto = "\n".join(lineas)
+
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": to,
+            "type": "interactive",
+            "interactive": {
+                "type": "button",
+                "body": {"text": texto[:1024]},
+                "action": {"buttons": botones},
+            },
+        }
+        _enviar_interactivo(to, payload, "[Menú de productos enviado]")
+        return
+
+    # Más de 3 productos: lista desplegable (una fila por producto).
     filas = [
         {
             "id": f"ver_pack:{clave}",
@@ -1304,16 +1393,16 @@ def enviar_menu_productos(to):
         "type": "interactive",
         "interactive": {
             "type": "list",
-            "header": {"type": "text", "text": "Nuestros packs"},
+            "header": {"type": "text", "text": "Nuestros productos"},
             "body": {"text": MENSAJE_BIENVENIDA_MENU},
             "footer": {"text": "Tocá el botón para ver las opciones"},
             "action": {
-                "button": "Ver packs",
-                "sections": [{"title": "Packs disponibles", "rows": filas}],
+                "button": "Ver productos",
+                "sections": [{"title": "Disponibles", "rows": filas}],
             },
         },
     }
-    _enviar_interactivo(to, payload, "[Menú de packs enviado]")
+    _enviar_interactivo(to, payload, "[Menú de productos enviado]")
 
 
 def enviar_ficha_producto(to, clave):
@@ -1525,7 +1614,9 @@ def enviar_manuales_completos(to, clave="kit_maestro"):
     cantidad = len(producto["manuales"])
 
     if link_carpeta:
-        if cantidad == 1:
+        if cantidad == 0:
+            descripcion_entrega = "tu carpeta con todo el contenido, lista para descargar"
+        elif cantidad == 1:
             descripcion_entrega = "tu archivo, listo para descargar"
         else:
             descripcion_entrega = f"tu carpeta con los {cantidad} manuales completos, listos para descargar"
