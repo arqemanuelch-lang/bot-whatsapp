@@ -62,10 +62,10 @@ DATOS_TRANSFERENCIA = {
 PROMPT_SISTEMA_IA = (
     "Sos un asistente de ventas por WhatsApp para Droply IA, un negocio que vende "
     "productos digitales. Hoy vende: el Kit Maestro de Arquitectura y "
-    "Construcción (7 manuales técnicos en PDF, $6.000) y el Pack Retro Games (juegos clásicos para el celular, $3.000). "
+    "Construcción (7 manuales técnicos en PDF, $6.000), el Pack Retro Games (juegos clásicos para el celular, $3.000) y la Canción Personalizada con su nombre ($15.000). "
     "Respondé breve, claro y amable en español. Si el cliente pregunta por algo que no "
-    "sea uno de esos dos productos, decile que por ahora solo están esos dos. "
-    "Orientalo a escribir el nombre del producto (*kit maestro* o *retro games*) para que el sistema le muestre la ficha completa."
+    "sea uno de esos tres productos, decile que por ahora solo están esos tres. "
+    "Orientalo a escribir el nombre del producto (*kit maestro*, *retro games* o *canción*) para que el sistema le muestre la ficha completa."
 )
 
 
@@ -192,6 +192,55 @@ PRODUCTOS = {
         ],
         "manuales": [],  # este producto no usa manuales/PDFs
     },
+    "cancion_personalizada": {
+        "titulo": "Canción Personalizada con su Nombre",
+        "titulo_boton": "Canción a medida",  # texto del botón en el menú (máx. 20 caracteres)
+        "descripcion_corta": "Una canción original para regalar, hecha con su historia",
+        "precio": "$15.000",
+        "precio_oferta": "$15.000",
+        "precio_valor": 15000,
+        "sin_imagen": True,  # cuando tengas la imagen: borrá esta línea y agregá "imagen": "link directo de ibb.co"
+        "emoji_ficha": "🎵",
+        "texto_entrega": "las preguntas para armar tu canción",
+        "que_incluye": [
+            "Una canción original con el nombre de esa persona especial",
+            "Letra hecha con TU historia: recuerdos, apodos y frases que los representan",
+            "Elegís el estilo: balada, pop, cumbia, rock, reggaetón, folklore y más",
+            "Te la enviamos en audio por WhatsApp, lista para regalar",
+            "Un cambio sin cargo si querés ajustar algo",
+            "Entrega en menos de 24 horas después de tus respuestas",
+        ],
+        "mensaje_precio": (
+            "💰 *Precio:* $15.000 (pago único)\n\n"
+            "Para encargar la tuya, escribí *ALIAS* y te paso los datos para "
+            "transferir. 👇\n\n"
+            "Cuando se confirme el pago te hago unas preguntas para armar tu "
+            "canción. 🎶"
+        ),
+        # --- Cuestionario que el bot hace DESPUÉS de aprobar el pago ---
+        # Se pregunta de a una. Al terminar, te llega por Telegram el pedido
+        # completo para que produzcas la canción.
+        "cuestionario_intro": (
+            "✅ *¡Pago confirmado!* Ahora armamos tu canción 🎶\n\n"
+            "Te voy a hacer unas preguntas, de a una. Cuanto más detalle me des, "
+            "más especial queda la letra."
+        ),
+        "cuestionario": [
+            "¿Para quién es la canción? Escribí el nombre tal cual querés que aparezca en la letra.",
+            "¿Qué relación tienen? (pareja, mamá, papá, hijo/a, amigo/a, hermano/a...)",
+            "¿Para qué ocasión es? (cumpleaños, aniversario, sorpresa, pedido de perdón, casamiento...)",
+            "¿Qué estilo de música preferís? (balada, pop, cumbia, rock, reggaetón, folklore, otro)",
+            "¿Preferís voz femenina o masculina?",
+            "Contame su historia: momentos, recuerdos, apodos, lugares, cosas que les gusta hacer juntos. Escribí todo lo que quieras en un solo mensaje.",
+            "¿Hay alguna frase o palabra que sí o sí querés que aparezca en la canción? (si no, escribí NO)",
+        ],
+        "cuestionario_cierre": (
+            "🎉 *¡Listo, ya tengo todo!* Estamos componiendo tu canción.\n\n"
+            "Te la enviamos acá mismo, por este chat, en menos de 24 horas. "
+            "Si querés ajustar algo, tenés un cambio sin cargo. 💛"
+        ),
+        "manuales": [],  # este producto no usa manuales/PDFs
+    },
 }
 
 
@@ -258,5 +307,14 @@ PALABRAS_POR_PRODUCTO = {
         "arcade",
         "emulador",
         "juegos para el celular",
+    ],
+    "cancion_personalizada": [
+        "cancion",
+        "canciones",
+        "cancion personalizada",
+        "cancion para ella",
+        "cancion con su nombre",
+        "regalo musical",
+        "cancion de regalo",
     ],
 }
