@@ -1,4 +1,5 @@
 import os
+import json
 import hmac
 import hashlib
 import re
@@ -309,6 +310,18 @@ def init_db():
         CREATE TABLE IF NOT EXISTS pagos_mp_procesados (
             payment_id TEXT PRIMARY KEY,
             fecha TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS cuestionarios (
+            numero TEXT PRIMARY KEY,
+            clave TEXT NOT NULL,
+            paso INTEGER NOT NULL DEFAULT 0,
+            respuestas TEXT NOT NULL DEFAULT '[]',
+            estado TEXT NOT NULL DEFAULT 'activo',
+            ts REAL NOT NULL
         )
         """
     )
@@ -796,6 +809,13 @@ def receive_message():
         if tipo == "text":
             msg_body = message_data["text"]["body"].strip()
             guardar_mensaje(from_number, "entrante", msg_body)
+
+            # Si este cliente está respondiendo el cuestionario de un
+            # producto a pedido (ej: canción), el mensaje es una respuesta:
+            # no lo tratamos como consulta común ni lo notificamos uno por uno.
+            if not message_data.get("referral") and procesar_respuesta_cuestionario(from_number, msg_body):
+                return jsonify({"status": "cuestionario"}), 200
+
             enviar_notificacion_telegram(from_number, msg_body)
 
             referral = message_data.get("referral")
@@ -1032,6 +1052,8 @@ def _texto_entrega(producto):
     """Devuelve la frase correcta para 'te mando ___ al instante', según el
     tipo de producto: cuenta (entrega manual), manuales/PDFs con cantidad,
     o un pack genérico (que_incluye) sin manuales individuales."""
+    if producto.get("texto_entrega"):
+        return producto["texto_entrega"]
     if producto.get("entrega_manual"):
         return "tus datos de acceso"
     cantidad = len(producto.get("manuales", []))
@@ -1574,7 +1596,7 @@ def _texto_detalle_manuales(clave):
     # Si el producto tiene "que_incluye" (una lista de beneficios, para
     # productos que no son PDFs/manuales), se arma el texto con eso.
     if producto.get("que_incluye"):
-        lineas = [f"✨ *¿Qué incluye el {producto['titulo']}?*\n"]
+        lineas = [f"✨ *¿Qué incluye {producto['titulo']}?*\n"]
         for item in producto["que_incluye"]:
             lineas.append(f"✅ {item}")
         lineas.append(f"\n💰 *Precio:* {producto['precio']}")
@@ -1593,8 +1615,119 @@ def _enviar_interactivo(to, payload, texto_para_guardar):
     guardar_mensaje(to, "saliente", texto_para_guardar)
 
 
+# =====================================================================
+#  Cuestionario después del pago (productos a pedido, ej: canción)
+#  ----------------------------------------------------------------
+#  Si un producto tiene "cuestionario" en config.py, cuando se aprueba el
+#  pago el bot le hace esas preguntas al cliente, de a una, y al final te
+#  manda el pedido completo por Telegram. El estado se guarda en la base
+#  (tabla "cuestionarios"), así que sobrevive a un reinicio del servidor
+#  siempre que DB_PATH apunte a un disco persistente.
+# =====================================================================
+HORAS_VENCE_CUESTIONARIO = 48
+
+
+def _guardar_estado_cuestionario(numero, clave, paso, respuestas, estado):
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO cuestionarios (numero, clave, paso, respuestas, estado, ts) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (numero, clave, paso, json.dumps(respuestas, ensure_ascii=False), estado, time.time()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def obtener_cuestionario_activo(numero):
+    """Devuelve (clave, paso, respuestas) si este número tiene un cuestionario
+    en curso (y no venció), o None."""
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        fila = conn.execute(
+            "SELECT clave, paso, respuestas, ts FROM cuestionarios WHERE numero = ? AND estado = 'activo'",
+            (numero,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if not fila:
+        return None
+    clave, paso, respuestas_json, ts = fila
+    if time.time() - ts > HORAS_VENCE_CUESTIONARIO * 3600:
+        return None
+    try:
+        respuestas = json.loads(respuestas_json)
+    except Exception:
+        respuestas = []
+    return clave, paso, respuestas
+
+
+def _texto_pregunta(producto, paso):
+    preguntas = producto["cuestionario"]
+    return f"*Pregunta {paso + 1} de {len(preguntas)}*\n{preguntas[paso]}"
+
+
+def iniciar_cuestionario(numero, clave):
+    producto = PRODUCTOS[clave]
+    _guardar_estado_cuestionario(numero, clave, 0, [], "activo")
+    intro = producto.get(
+        "cuestionario_intro",
+        "✅ *¡Pago confirmado!* Te voy a hacer unas preguntas, de a una.",
+    )
+    enviar_mensaje_texto(numero, f"{intro}\n\n{_texto_pregunta(producto, 0)}")
+    enviar_notificacion_telegram(
+        numero, f"💳 Pago aprobado de «{producto['titulo']}». Empezó el cuestionario con el cliente."
+    )
+
+
+def procesar_respuesta_cuestionario(numero, texto):
+    """Si este número está respondiendo un cuestionario, guarda la respuesta
+    y manda la siguiente pregunta (o el cierre). Devuelve True si el mensaje
+    fue una respuesta del cuestionario, False si no corresponde."""
+    estado = obtener_cuestionario_activo(numero)
+    if not estado:
+        return False
+    clave, paso, respuestas = estado
+    producto = PRODUCTOS.get(clave)
+    if not producto or not producto.get("cuestionario"):
+        return False
+
+    preguntas = producto["cuestionario"]
+    respuestas.append(texto)
+    paso += 1
+
+    if paso < len(preguntas):
+        _guardar_estado_cuestionario(numero, clave, paso, respuestas, "activo")
+        enviar_mensaje_texto(numero, _texto_pregunta(producto, paso))
+        return True
+
+    _guardar_estado_cuestionario(numero, clave, paso, respuestas, "completo")
+    enviar_mensaje_texto(
+        numero,
+        producto.get(
+            "cuestionario_cierre",
+            "🎉 *¡Listo, ya tengo todo!* Te enviamos tu pedido por acá en breve. 💛",
+        ),
+    )
+
+    lineas = [f"🎵 PEDIDO COMPLETO — {producto['titulo']}", ""]
+    for i, (pregunta, respuesta) in enumerate(zip(preguntas, respuestas), start=1):
+        lineas.append(f"{i}. {pregunta}")
+        lineas.append(f"→ {str(respuesta)[:900]}")
+        lineas.append("")
+    enviar_notificacion_telegram(numero, "\n".join(lineas).strip())
+    return True
+
+
 def enviar_manuales_completos(to, clave="kit_maestro"):
     producto = PRODUCTOS[clave]
+
+    # Productos a pedido (ej: canción personalizada): después del pago, el
+    # bot le hace las preguntas al cliente en vez de mandar una carpeta.
+    if producto.get("cuestionario"):
+        iniciar_cuestionario(to, clave)
+        return
 
     # Productos de entrega manual (ej: cuentas): no hay link ni carpeta,
     # el usuario/contraseña lo escribe un humano a mano después, por
