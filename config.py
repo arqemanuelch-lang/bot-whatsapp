@@ -62,7 +62,7 @@ DATOS_TRANSFERENCIA = {
 PROMPT_SISTEMA_IA = (
     "Sos un asistente de ventas por WhatsApp para Droply IA, un negocio que vende "
     "productos digitales. Hoy vende: el Kit Maestro de Arquitectura y "
-    "Construcción (7 manuales técnicos en PDF, $6.000), el Pack Retro Games (juegos clásicos para el celular, $3.000) y la Canción Personalizada con su nombre ($15.000). "
+    "Construcción (7 manuales técnicos en PDF, $5.500), el Pack Retro Games (juegos clásicos para el celular, $3.000) y la Canción Personalizada con su nombre ($15.000). "
     "Respondé breve, claro y amable en español. Si el cliente pregunta por algo que no "
     "sea uno de esos tres productos, decile que por ahora solo están esos tres. "
     "Orientalo a escribir el nombre del producto (*kit maestro*, *retro games* o *canción*) para que el sistema le muestre la ficha completa."
@@ -142,16 +142,41 @@ PRODUCTOS = {
         "titulo": "Kit Maestro de Arquitectura y Construcción",
         "titulo_boton": "Kit Maestro",  # texto del botón en el menú (máx. 20 caracteres)
         "descripcion_corta": "7 manuales técnicos en PDF",
-        "precio": "$6.000",
-        "precio_oferta": "$6.000",
-        "precio_valor": 6000,  # el mismo precio, pero como número (lo necesita Mercado Pago)
+        "precio": "$5.500",
+        "precio_oferta": "$5.500",
+        "precio_valor": 5500,  # el mismo precio, pero como número (lo necesita Mercado Pago)
         "link_pago": "https://mpago.la/17uyqFK",
-        "imagen": "https://i.ibb.co/zTd7PcQJ/a722ab83-e521-4fef-b680-54e6a8b847b7.png",
-        "imagen_oferta": "https://i.ibb.co/zTd7PcQJ/a722ab83-e521-4fef-b680-54e6a8b847b7.png",
+        "imagen": "https://i.ibb.co/1f2DYYpj/a722ab83-e521-4fef-b680-54e6a8b847b7.png",
+        "imagen_oferta": "https://i.ibb.co/1f2DYYpj/a722ab83-e521-4fef-b680-54e6a8b847b7.png",
         # Carpeta de Google Drive con TODOS los manuales completos. Se manda
         # este único link cuando se confirma el pago (en vez de los links
         # individuales de cada manual, que son solo para "ver adelanto").
         "link_carpeta_final": "https://drive.google.com/drive/folders/1YwPEiA5UWOl60GIg_8YYxxVpWaaO6MSw?usp=sharing",
+        # Regalo y mensaje de precio con apuro, SIN fecha de vencimiento.
+        "regalo_sorpresa": ["Un plus sorpresa que descubrís al recibir tu pack"],
+        "mensaje_precio": (
+            "💰 *Precio:* $5.500  (precio normal ~$6.000~)\n"
+            "🎁 Y de regalo: un plus sorpresa que descubrís al recibir tu pack\n\n"
+            "⚡ Es el precio vigente ahora y puede subir sin aviso, y el regalo es "
+            "por tiempo limitado. Si te interesa, aprovechalo hoy.\n\n"
+            "Escribí *ALIAS* y te paso todos los datos para transferir. 👇"
+        ),
+        # --- PROMO DE LOS 5 MINUTOS (bonus) ---
+        # Si alguien ve la ficha y a los 5 minutos no avanzó, el bot le manda
+        # esta oferta: "si comprás hoy, te llevás de regalo ...". Al aprobar el
+        # pago (hasta 24 h después de la oferta) el bot le manda el regalo.
+        # IMPORTANTE: la promo SOLO se activa si "link" tiene el link de Drive
+        # del regalo completo. Mientras esté vacío, no se manda nada.
+        "bonus_promo": {
+            "titulo": "Guía gráfica de Diseño Residencial (eBook de Luis Furushio)",
+            "link": "",           # link de Drive del eBook COMPLETO (obligatorio)
+            "password": "Orange-Black-Sky9",  # contraseña del PDF (se le manda al cliente junto con el regalo)
+            "imagen": "https://i.ibb.co/wZYFYJmY/image.png",  # portada del regalo, se manda arriba del mensaje de los 5 min
+            "imagen_recordatorio": "https://i.ibb.co/p6cn10qW/image.png",  # 2ª imagen, solo en el aviso de los 10 min
+            "link_adelanto": "https://drive.google.com/file/d/1jP-ZFbKMh2lekFUwax2ElYHNTG942WVC/view?usp=sharing",  # adelanto breve (opcional)
+            "segundos": 300,      # 5 minutos
+            "segundos_recordatorio": 600,  # 10 minutos: segundo aviso si todavía no compró
+        },
         "manuales": [
             {"titulo": "Cómo se proyecta una Vivienda", "autor": "J.L. Moia",
              "link": "https://drive.google.com/file/d/114PXZLc-QRsfuEF3eSVSMlWEq_ICbJgQ/view?usp=sharing"},
@@ -255,14 +280,10 @@ PRODUCTOS = {
 #      entrega del producto.
 # ---------------------------------------------------------------------
 PROMOS = {
-    "kit_maestro": {
-        "hasta": "2026-10-22",          # formato AAAA-MM-DD, vale hasta las 23:59
-        "precio": "$5.500",
-        "precio_valor": 5500,
-        "precio_normal": "$6.000",      # se muestra tachado como referencia
-        "regalo": "Un plus sorpresa que descubrís al recibir tu pack",
-        "aviso": "⏰ Promo válida solo hoy",
-    },
+    # Vacío: ya no hay promos con vencimiento. Para una promo con fecha, agregá acá
+    # un bloque como el de abajo (ejemplo, no está activo):
+    # "kit_maestro": {"hasta": "2026-12-31", "precio": "$5.000", "precio_valor": 5000,
+    #                 "precio_normal": "$5.500", "regalo": "...", "aviso": "⏰ Promo hasta el 31/12"},
 }
 
 
