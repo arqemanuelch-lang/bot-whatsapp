@@ -42,6 +42,12 @@ MENSAJE_BIENVENIDA_MENU = (
 # seteada ahí, tiene prioridad sobre este valor).
 NUMERO_RESPALDO_DEFAULT = "+54 9 11 5143-9788"
 
+# Mensaje final de agradecimiento (se manda un rato después de entregar la compra).
+# Pegá acá el link de tu página/Facebook/Instagram donde quieras el comentario.
+# Si lo dejás vacío "", el mensaje sale igual pero sin link.
+COMENTARIO_LINK = ""
+SEGUNDOS_PEDIR_COMENTARIO = 120   # cuánto espera después de entregar
+
 
 # ---------------------------------------------------------------------
 # 2) DATOS DE COBRO (transferencia / Lemon)
@@ -174,7 +180,7 @@ PRODUCTOS = {
             "imagen": "https://i.ibb.co/wZYFYJmY/image.png",  # portada del regalo, se manda arriba del mensaje de los 5 min
             "imagen_recordatorio": "https://i.ibb.co/p6cn10qW/image.png",  # 2ª imagen, solo en el aviso de los 10 min
             "link_adelanto": "https://drive.google.com/file/d/1jP-ZFbKMh2lekFUwax2ElYHNTG942WVC/view?usp=sharing",  # adelanto breve (opcional)
-            "segundos": 300,      # 5 minutos
+            "segundos": 180,      # 5 minutos
             "segundos_recordatorio": 600,  # 10 minutos: segundo aviso si todavía no compró
         },
         "manuales": [
