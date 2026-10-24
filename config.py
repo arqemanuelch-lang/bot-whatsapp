@@ -175,7 +175,7 @@ PRODUCTOS = {
         # del regalo completo. Mientras esté vacío, no se manda nada.
         "bonus_promo": {
             "titulo": "Guía gráfica de Diseño Residencial (eBook de Luis Furushio)",
-            "link": "",           # link de Drive del eBook COMPLETO (obligatorio)
+            "link": "https://drive.google.com/file/d/17516DKeXpsCORRvP4W1LjZfv3BdpPLoL/view?usp=sharing",  # eBook COMPLETO (se entrega después del pago)
             "password": "Orange-Black-Sky9",  # contraseña del PDF (se le manda al cliente junto con el regalo)
             "imagen": "https://i.ibb.co/wZYFYJmY/image.png",  # portada del regalo, se manda arriba del mensaje de los 5 min
             "imagen_recordatorio": "https://i.ibb.co/p6cn10qW/image.png",  # 2ª imagen, solo en el aviso de los 10 min
