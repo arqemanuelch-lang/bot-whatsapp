@@ -1888,6 +1888,30 @@ def enviar_manuales_completos(to, clave="kit_maestro"):
         _entregar_bonus_si_corresponde(to, clave)
     except Exception as e:
         print("Error entregando bonus:", e)
+    producto = PRODUCTOS.get(clave, {})
+    if not producto.get("cuestionario") and not producto.get("entrega_manual"):
+        try:
+            import config as _cfg
+            t = threading.Timer(
+                getattr(_cfg, "SEGUNDOS_PEDIR_COMENTARIO", 120),
+                _pedir_comentario, args=(to, getattr(_cfg, "COMENTARIO_LINK", "")),
+            )
+            t.daemon = True
+            t.start()
+        except Exception as e:
+            print("Error programando pedido de comentario:", e)
+
+
+def _pedir_comentario(to, link):
+    texto = (
+        "🙌 *¡Gracias por tu compra!*\n\n"
+        "Si el material te sirvió, te agradecería mucho que dejes un comentario "
+        "en nuestra página. A mí me ayuda a seguir creciendo y a otras personas "
+        "las ayuda a animarse. 💛"
+    )
+    if str(link).strip():
+        texto += f"\n\n👉 {link}"
+    enviar_mensaje_texto(to, texto)
 
 
 def _enviar_contenido_principal(to, clave="kit_maestro"):
