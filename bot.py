@@ -1194,6 +1194,12 @@ def mercadopago_webhook():
 # =====================================================================
 #  Lógica del Bot (Kit Maestro)
 # =====================================================================
+def _num(i):
+    """Número en emoji para 1-9, y '10.' '11.'... desde el 10 (los emojis de
+    dos cifras se ven mal en WhatsApp)."""
+    return f"{i}️⃣" if i < 10 else f"{i}."
+
+
 def _texto_cantidad_manuales(producto):
     """Devuelve 'el manual' si el pack tiene uno solo, o 'los N manuales'
     si tiene varios (para que los mensajes se lean bien en los dos casos)."""
@@ -1370,7 +1376,7 @@ def _enviar_flujo_compra(numero, clave):
     if producto.get("manuales"):
         lineas_libros = [f"📚 *Esto es lo que te llevás:*\n"]
         for i, manual in enumerate(producto["manuales"], start=1):
-            lineas_libros.append(f"{i}️⃣ {manual['titulo']} ({manual['autor']})")
+            lineas_libros.append(f"{_num(i)} {manual['titulo']} ({manual['autor']})")
         regalos_resumen = list(producto.get("regalo_sorpresa", []))
         bonus_resumen = _bonus_activo(producto)
         if bonus_resumen:
@@ -1604,7 +1610,7 @@ def _enviar_secuencia_ficha(to, clave):
 
     PRODUCTO_ACTUAL[to] = clave  # recordamos qué producto le mostramos a este número
 
-    PAUSA = 4  # segundos entre mensaje y mensaje
+    PAUSA = 3  # segundos entre mensaje y mensaje
 
     # Por defecto, cada producto manda UNA sola imagen en la ficha (prioriza
     # la de oferta si existe, si no la de portada) — así se comportaba el
@@ -1659,8 +1665,8 @@ def _enviar_secuencia_ficha(to, clave):
     if producto.get("manuales"):
         lineas = [f"📚 *Esto es lo que te llevás:*\n"]
         for i, manual in enumerate(producto["manuales"], start=1):
-            lineas.append(f"{i}️⃣ *{manual['titulo']}* ({manual['autor']})")
-            lineas.append(f"👉 {manual['link']}\n")
+            lineas.append(f"{_num(i)} *{manual['titulo']}* ({manual['autor']})")
+            lineas.append(f"👉 {manual['link']}\n" if manual.get("link") else "")
         if producto.get("regalo_sorpresa"):
             lineas.append("🎁 *Y de regalo, además, te llevás:*\n")
             for regalo in producto["regalo_sorpresa"]:
@@ -1685,6 +1691,10 @@ def _enviar_secuencia_ficha(to, clave):
             "Si querés adquirir el pack, escribí *ALIAS* y te paso todos los datos "
             "para transferir. 👇",
         )
+
+    # Botón directo para comprar (así no tiene que escribir nada).
+    time.sleep(2)
+    enviar_botones_pack(to, clave, texto="Tocá el botón y te paso los datos para pagar 👇")
 
     # Si en 3 minutos / 1 hora no escribe nada más, le mandamos un recordatorio.
     programar_recordatorio_compra(to, clave)
@@ -1723,7 +1733,7 @@ def enviar_botones_pack(to, clave, texto="¿Cómo querés avanzar?", incluir_ver
     botones = []
     if incluir_ver:
         botones.append({"type": "reply", "reply": {"id": f"ver_resena:{clave}", "title": "📚 Ver qué incluye"}})
-    botones.append({"type": "reply", "reply": {"id": f"comprar_pack:{clave}", "title": "💳 Comprar el Kit"}})
+    botones.append({"type": "reply", "reply": {"id": f"comprar_pack:{clave}", "title": "💳 Quiero comprarlo"}})
     botones.append({"type": "reply", "reply": {"id": "hablar_vendedor", "title": "💬 Hablar con asesor"}})
 
     payload = {
@@ -1745,7 +1755,7 @@ def _texto_detalle_manuales(clave):
     if producto.get("manuales"):
         lineas = [f"📖 *Contenido del {producto['titulo']}*:\n"]
         for i, manual in enumerate(producto["manuales"], start=1):
-            lineas.append(f"{i}️⃣ *{manual['titulo']}* ({manual['autor']})\n👉 *Ver adelanto:* {manual['link']}\n")
+            lineas.append(f"{_num(i)} *{manual['titulo']}* ({manual['autor']})" + (f"\n👉 *Ver adelanto:* {manual['link']}\n" if manual.get("link") else ""))
         if producto.get("regalo_sorpresa"):
             lineas.append("🎁 *Y de regalo, además, te llevás:*\n")
             for regalo in producto["regalo_sorpresa"]:
@@ -1947,19 +1957,30 @@ def _enviar_contenido_principal(to, clave="kit_maestro"):
             descripcion_entrega = "tu archivo, listo para descargar"
         else:
             descripcion_entrega = f"tu carpeta con los {cantidad} manuales completos, listos para descargar"
-        enviar_mensaje_texto(
-            to,
-            f"✅ *¡Pago confirmado!* Acá tenés {descripcion_entrega}:\n\n"
-            f"{link_carpeta}\n\n"
-            "¡Gracias por tu compra! 🙌",
-        )
+        link_extra = str(producto.get("link_carpeta_extra", "")).strip()
+        if link_extra:
+            enviar_mensaje_texto(
+                to,
+                f"✅ *¡Pago confirmado!* Acá tenés tus {cantidad} manuales completos, "
+                "en dos carpetas listas para descargar:\n\n"
+                f"📁 *Carpeta 1:*\n{link_carpeta}\n\n"
+                f"📁 *Carpeta 2:*\n{link_extra}\n\n"
+                "¡Gracias por tu compra! 🙌",
+            )
+        else:
+            enviar_mensaje_texto(
+                to,
+                f"✅ *¡Pago confirmado!* Acá tenés {descripcion_entrega}:\n\n"
+                f"{link_carpeta}\n\n"
+                "¡Gracias por tu compra! 🙌",
+            )
     else:
         # Respaldo: si no hay carpeta configurada, mandamos los links
         # individuales de cada manual (como se hacía antes).
         encabezado = "tu manual completo" if cantidad == 1 else f"tus {cantidad} manuales completos"
         lineas = [f"✅ *¡Pago confirmado! Acá tenés {encabezado}:*\n"]
         for i, manual in enumerate(producto["manuales"], start=1):
-            lineas.append(f"{i}️⃣ *{manual['titulo']}* ({manual['autor']})\n👉 {manual['link']}\n")
+            lineas.append(f"{_num(i)} *{manual['titulo']}* ({manual['autor']})" + (f"\n👉 {manual['link']}\n" if manual.get("link") else ""))
         lineas.append("¡Gracias por tu compra! 🙌")
         enviar_mensaje_texto(to, "\n".join(lineas))
 
