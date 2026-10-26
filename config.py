@@ -68,7 +68,7 @@ DATOS_TRANSFERENCIA = {
 PROMPT_SISTEMA_IA = (
     "Sos un asistente de ventas por WhatsApp para Droply IA, un negocio que vende "
     "productos digitales. Hoy vende: el Kit Maestro de Arquitectura y "
-    "Construcción (7 manuales técnicos en PDF, $5.500), el Pack Retro Games (juegos clásicos para el celular, $3.000) y la Canción Personalizada con su nombre ($15.000). "
+    "Construcción (16 manuales técnicos en PDF, $5.500), el Pack Retro Games (juegos clásicos para el celular, $3.000) y la Canción Personalizada con su nombre ($15.000). "
     "Respondé breve, claro y amable en español. Si el cliente pregunta por algo que no "
     "sea uno de esos tres productos, decile que por ahora solo están esos tres. "
     "Orientalo a escribir el nombre del producto (*kit maestro*, *retro games* o *canción*) para que el sistema le muestre la ficha completa."
@@ -147,7 +147,7 @@ PRODUCTOS = {
     "kit_maestro": {
         "titulo": "Kit Maestro de Arquitectura y Construcción",
         "titulo_boton": "Kit Maestro",  # texto del botón en el menú (máx. 20 caracteres)
-        "descripcion_corta": "7 manuales técnicos en PDF",
+        "descripcion_corta": "16 manuales técnicos en PDF",
         "precio": "$5.500",
         "precio_oferta": "$5.500",
         "precio_valor": 5500,  # el mismo precio, pero como número (lo necesita Mercado Pago)
@@ -158,6 +158,8 @@ PRODUCTOS = {
         # este único link cuando se confirma el pago (en vez de los links
         # individuales de cada manual, que son solo para "ver adelanto").
         "link_carpeta_final": "https://drive.google.com/drive/folders/1YwPEiA5UWOl60GIg_8YYxxVpWaaO6MSw?usp=sharing",
+        # 2ª carpeta con los libros 8 al 16 (Ching). Se manda junto a la primera después del pago.
+        "link_carpeta_extra": "https://drive.google.com/drive/folders/1ZmcDD6CkFwADoZZY3hceP_2yJ7tnnBse?usp=sharing",
         # Regalo y mensaje de precio con apuro, SIN fecha de vencimiento.
         "regalo_sorpresa": ["Un plus sorpresa que descubrís al recibir tu pack"],
         "mensaje_precio": (
@@ -165,7 +167,7 @@ PRODUCTOS = {
             "🎁 Y de regalo: un plus sorpresa que descubrís al recibir tu pack\n\n"
             "⚡ Es el precio vigente ahora y puede subir sin aviso, y el regalo es "
             "por tiempo limitado. Si te interesa, aprovechalo hoy.\n\n"
-            "Escribí *ALIAS* y te paso todos los datos para transferir. 👇"
+            "Tocá *Quiero comprarlo* acá abajo (o escribí *ALIAS*) y te paso los datos para pagar. 👇"
         ),
         # --- PROMO DE LOS 5 MINUTOS (bonus) ---
         # Si alguien ve la ficha y a los 5 minutos no avanzó, el bot le manda
@@ -198,6 +200,15 @@ PRODUCTOS = {
              "link": "https://drive.google.com/file/d/1ETqTBa_nxWLigyHmQY8mvoeqqS49AIH3/view?usp=sharing"},
             {"titulo": "Instalaciones Sanitarias", "autor": "Jorge Ortíz",
              "link": "https://drive.google.com/file/d/1rd-tAxh3Qk8wcp-6TlFmzpjwzs25SEdA/view?usp=sharing"},
+            {"titulo": "Arquitectura: Forma, espacio y orden", "autor": "Francis D.K. Ching"},  # solo en lista, sin adelanto
+            {"titulo": "Diccionario visual de arquitectura", "autor": "Francis D.K. Ching"},  # solo en lista, sin adelanto
+            {"titulo": "Diseño de interiores: Un manual", "autor": "Francis D.K. Ching"},  # solo en lista, sin adelanto
+            {"titulo": "Manual de dibujo arquitectónico", "autor": "Francis D.K. Ching"},  # solo en lista, sin adelanto
+            {"titulo": "Design Drawing, 2nd Ed (ePub, en inglés)", "autor": "Francis D.K. Ching"},  # solo en lista, sin adelanto
+            {"titulo": "Guía de Construcción Ilustrada", "autor": "Francis D.K. Ching"},  # solo en lista, sin adelanto
+            {"titulo": "Manual de estructuras ilustrado", "autor": "Francis D.K. Ching"},  # solo en lista, sin adelanto
+            {"titulo": "Historia global de la arquitectura", "autor": "Francis D.K. Ching y Mark Jarzombek"},  # solo en lista, sin adelanto
+            {"titulo": "Arquitectura ecológica: Un manual ilustrado", "autor": "Francis D.K. Ching e Ian M. Shapiro"},  # solo en lista, sin adelanto
         ],
     },
     "pack_retro_games": {
