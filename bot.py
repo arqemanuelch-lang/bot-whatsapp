@@ -22,6 +22,8 @@ from config import (
     NOMBRE_NEGOCIO,
     PALABRA_CLAVE_MENU,
     MENSAJE_BIENVENIDA_MENU,
+    MENSAJE_BIENVENIDA_SIMPLE,
+    TEXTO_BOTON_LISTA,
     NUMERO_RESPALDO_DEFAULT,
     DATOS_TRANSFERENCIA,
     PROMPT_SISTEMA_IA,
@@ -287,6 +289,33 @@ def _enviar_recordatorio_bonus(numero, clave):
     enviar_botones_pack(numero, clave, texto="¿Cómo querés avanzar?", incluir_ver=False)
 
 
+def _enviar_recordatorio_fuerte(numero, clave):
+    """Mensaje de venta directo (a los 5 min si no compró): beneficios, precio,
+    adelanto breve de cada libro por si tiene dudas, y botón de compra."""
+    producto = PRODUCTOS.get(clave)
+    if not producto:
+        return
+    manuales = producto.get("manuales", [])
+    cantidad = len(manuales)
+    lineas = [
+        "🔥 *No dejes pasar esta oferta* 🔥\n",
+        f"Por *{producto['precio']}* te llevás *{cantidad} libros* de arquitectura y construcción, "
+        "con acceso inmediato apenas pagás. Comprarlos impresos te costaría muchísimo más. 📚\n",
+        "🎁 Y de regalo: un plus único y sorpresa que te va a ayudar en el mundo de la construcción.\n",
+    ]
+    con_adelanto = [m for m in manuales if m.get("link")]
+    if con_adelanto:
+        lineas.append("🤔 *¿Tenés dudas? Mirá un adelanto de cada libro antes de decidir:*\n")
+        for m in con_adelanto:
+            lineas.append(f"👀 *{m['titulo']}*\n{m['link']}\n")
+    lineas.append(f"💰 *Todo por {producto['precio']}.* El precio vigente es este y puede subir sin aviso.")
+    enviar_mensaje_texto(numero, "\n".join(lineas))
+    time.sleep(2)
+    enviar_mensaje_texto(numero, "✍️ Escribí *ALIAS* y te paso todos los datos para transferir. 👇")
+    time.sleep(2)
+    enviar_botones_pack(numero, clave, texto="O si preferís, tocá el botón 👇", incluir_ver=False)
+
+
 def programar_recordatorio_compra(numero, clave):
     """Programa los dos recordatorios (3 minutos y 1 hora) para este número.
     Si ya había recordatorios pendientes, los reemplaza (reinicia el conteo)."""
@@ -354,6 +383,18 @@ def programar_recordatorio_compra(numero, clave):
         timer_medio.daemon = True
         RECORDATORIOS_PENDIENTES_MEDIO[numero] = timer_medio
         timer_medio.start()
+    elif PRODUCTOS.get(clave, {}).get("recordatorio_fuerte"):
+        def _fuerte():
+            RECORDATORIOS_PENDIENTES.pop(numero, None)
+            if time.time() - ULTIMA_INTERACCION.get(numero, 0) < 10:
+                return
+            _enviar_recordatorio_fuerte(numero, clave)
+
+        espera_f = float(os.getenv(
+            "SEGUNDOS_RECORDATORIO_FUERTE",
+            PRODUCTOS[clave]["recordatorio_fuerte"].get("segundos", 300),
+        ))
+        timer_corto = threading.Timer(espera_f, _fuerte)
     else:
         timer_corto = threading.Timer(SEGUNDOS_RECORDATORIO_CORTO, _recordatorio_corto)
     timer_corto.daemon = True
@@ -1297,7 +1338,7 @@ def manejar_texto(from_number, msg_body_lower):
         if len(PRODUCTOS) == 1:
             enviar_ficha_producto(from_number, next(iter(PRODUCTOS)))
         else:
-            enviar_menu_productos(from_number)
+            enviar_bienvenida_simple(from_number)
         return
 
     # 1.5) Red de contención para gente que no toca los botones y escribe
@@ -1514,6 +1555,9 @@ def manejar_boton(from_number, opcion_id):
             "los manuales completos. 🙌",
         )
 
+    elif accion == "ver_lista":
+        enviar_menu_productos(from_number)
+
     elif accion == "hablar_vendedor":
         activar_modo_ia(from_number)
         respuesta_ia = generar_respuesta_ia(
@@ -1524,6 +1568,26 @@ def manejar_boton(from_number, opcion_id):
         enviar_mensaje_texto(from_number, _con_nota_respaldo(respuesta_ia))
     else:
         enviar_menu_productos(from_number)
+
+
+def enviar_bienvenida_simple(to):
+    """Bienvenida sin presentar productos: solo un saludo y un botón. La lista
+    aparece cuando la persona toca el botón."""
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": MENSAJE_BIENVENIDA_SIMPLE},
+            "action": {
+                "buttons": [
+                    {"type": "reply", "reply": {"id": "ver_lista", "title": TEXTO_BOTON_LISTA[:20]}},
+                ]
+            },
+        },
+    }
+    _enviar_interactivo(to, payload, MENSAJE_BIENVENIDA_SIMPLE)
 
 
 def enviar_menu_productos(to):
@@ -1609,6 +1673,11 @@ def _enviar_secuencia_ficha(to, clave):
         return
 
     PRODUCTO_ACTUAL[to] = clave  # recordamos qué producto le mostramos a este número
+
+    # Productos en modo "oferta de libros" (ej: Kit Maestro): secuencia propia.
+    if producto.get("modo_oferta_libros"):
+        _secuencia_oferta_libros(to, clave)
+        return
 
     PAUSA = 3  # segundos entre mensaje y mensaje
 
@@ -1700,6 +1769,77 @@ def _enviar_secuencia_ficha(to, clave):
     programar_recordatorio_compra(to, clave)
 
 
+
+
+def _secuencia_oferta_libros(to, clave):
+    """Ficha en modo oferta: saludo -> oferta única -> cada libro con su portada
+    (título + autor en el pie de la imagen) -> libros sin portada en lista ->
+    regalos -> precio con botón de compra."""
+    producto = PRODUCTOS[clave]
+    PAUSA = 3
+
+    # 0) Imagen de portada del producto (el banner), arriba de todo.
+    imagen_inicio = producto.get("imagen_oferta") or producto.get("imagen")
+    if imagen_inicio and not producto.get("sin_imagen"):
+        enviar_imagen(to, imagen_inicio)
+        time.sleep(PAUSA)
+
+    # 1) Saludo del producto.
+    enviar_mensaje_texto(to, producto.get("saludo") or f"¡Hola! 👋 Gracias por tu interés en el *{producto['titulo']}*")
+    time.sleep(PAUSA)
+
+    # 2) Oferta única.
+    enviar_mensaje_texto(
+        to,
+        producto.get("oferta_intro") or f"🔥 *OFERTA ÚNICA* 🔥\n\nLlevate todo por solo *{producto['precio']}*:",
+    )
+    time.sleep(PAUSA)
+
+    # 3) Cada libro con portada: imagen + título y autor.
+    sin_portada = []
+    for manual in producto.get("manuales", []):
+        if str(manual.get("imagen", "")).strip():
+            enviar_imagen(
+                to, manual["imagen"],
+                caption=f"📘 *{manual['titulo']}*\n✍️ {manual['autor']}",
+            )
+            time.sleep(2)
+        else:
+            sin_portada.append(manual)
+
+    # 4) Los libros que todavía no tienen portada, en una sola lista.
+    if sin_portada:
+        titulo_lista = "📚 *Y además te llevás:*\n" if producto.get("manuales") and len(sin_portada) != len(producto["manuales"]) else "📚 *Esto es lo que te llevás:*\n"
+        lineas = [titulo_lista]
+        for manual in sin_portada:
+            lineas.append(f"• *{manual['titulo']}* ({manual['autor']})")
+        enviar_mensaje_texto(to, "\n".join(lineas))
+        time.sleep(PAUSA)
+
+    # 5) Regalos: la Guía (con su portada) y el plus sorpresa.
+    bonus = _bonus_activo(producto)
+    regalos_texto = list(producto.get("regalo_sorpresa", []))
+    if bonus:
+        if str(bonus.get("imagen", "")).strip():
+            enviar_imagen(to, bonus["imagen"], caption=f"🎁 *DE REGALO:*\n📘 *{bonus['titulo']}*")
+            time.sleep(2)
+        else:
+            regalos_texto.insert(0, bonus["titulo"])
+    if regalos_texto:
+        enviar_mensaje_texto(to, "🎁 *Y de regalo, además:*\n" + "\n".join(f"🎁 {r}" for r in regalos_texto))
+        time.sleep(PAUSA)
+
+    # 6) Precio + botón de compra.
+    if producto.get("mensaje_precio"):
+        enviar_mensaje_texto(to, producto["mensaje_precio"])
+    else:
+        enviar_mensaje_texto(to, f"💰 *Precio:* {producto['precio']}")
+    time.sleep(2)
+    enviar_mensaje_texto(to, "✍️ Escribí *ALIAS* y te paso todos los datos para transferir. 👇")
+    time.sleep(2)
+    enviar_botones_pack(to, clave, texto="O si preferís, tocá el botón 👇")
+
+    programar_recordatorio_compra(to, clave)
 
 
 def enviar_imagen(to, imagen_url, caption=""):
