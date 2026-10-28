@@ -36,6 +36,15 @@ MENSAJE_BIENVENIDA_MENU = (
     "¡Hola! 👋 Bienvenido a Droply IA. Elegí el producto que te interesa:"
 )
 
+# Bienvenida SIN productos: se manda cuando alguien saluda ("hola", etc.) sin
+# haber tocado un anuncio ni escrito el nombre de un producto. La lista de
+# productos aparece recién cuando toca el botón.
+MENSAJE_BIENVENIDA_SIMPLE = (
+    "¡Hola! 👋 Bienvenido a Droply IA. Estamos para ayudarte. "
+    "Tocá el botón de abajo para ver lo que tenemos disponible 👇"
+)
+TEXTO_BOTON_LISTA = "📋 Ver productos"   # máx. 20 caracteres
+
 # Número de respaldo al que el cliente puede escribir directamente con su
 # comprobante si ya pagó y no obtuvo respuesta a tiempo. También se puede
 # configurar por variable de entorno NUMERO_RESPALDO en Render (si está
@@ -147,6 +156,19 @@ PRODUCTOS = {
     "kit_maestro": {
         "titulo": "Kit Maestro de Arquitectura y Construcción",
         "titulo_boton": "Kit Maestro",  # texto del botón en el menú (máx. 20 caracteres)
+        # --- Ficha en modo "oferta de libros": saludo, oferta, cada libro con su
+        # portada (título + autor), el regalo y el precio con botón de compra.
+        "modo_oferta_libros": True,
+        # A los 5 minutos sin comprar: mensaje de venta directo con el adelanto de cada libro.
+        "recordatorio_fuerte": {"segundos": 300},
+        "saludo": (
+            "¡Hola! 👋 Gracias por tu interés en el *Kit Maestro de Arquitectura y Construcción* 🏗️\n\n"
+            "Te cuento qué te llevás 👇"
+        ),
+        "oferta_intro": (
+            "🔥 *OFERTA ÚNICA* 🔥\n\n"
+            "Llevate estos libros por solo *$5.500*:"
+        ),
         "descripcion_corta": "16 manuales técnicos en PDF",
         "precio": "$5.500",
         "precio_oferta": "$5.500",
@@ -161,13 +183,12 @@ PRODUCTOS = {
         # 2ª carpeta con los libros 8 al 16 (Ching). Se manda junto a la primera después del pago.
         "link_carpeta_extra": "https://drive.google.com/drive/folders/1ZmcDD6CkFwADoZZY3hceP_2yJ7tnnBse?usp=sharing",
         # Regalo y mensaje de precio con apuro, SIN fecha de vencimiento.
-        "regalo_sorpresa": ["Un plus sorpresa que descubrís al recibir tu pack"],
+        "regalo_sorpresa": ["Un plus único y sorpresa que te va a ayudar en el mundo de la construcción"],
         "mensaje_precio": (
             "💰 *Precio:* $5.500  (precio normal ~$6.000~)\n"
-            "🎁 Y de regalo: un plus sorpresa que descubrís al recibir tu pack\n\n"
+            "🎁 Y de regalo: un plus único y sorpresa que te va a ayudar en el mundo de la construcción\n\n"
             "⚡ Es el precio vigente ahora y puede subir sin aviso, y el regalo es "
-            "por tiempo limitado. Si te interesa, aprovechalo hoy.\n\n"
-            "Tocá *Quiero comprarlo* acá abajo (o escribí *ALIAS*) y te paso los datos para pagar. 👇"
+            "por tiempo limitado. Si te interesa, aprovechalo hoy."
         ),
         # --- PROMO DE LOS 5 MINUTOS (bonus) ---
         # Si alguien ve la ficha y a los 5 minutos no avanzó, el bot le manda
@@ -175,7 +196,7 @@ PRODUCTOS = {
         # pago (hasta 24 h después de la oferta) el bot le manda el regalo.
         # IMPORTANTE: la promo SOLO se activa si "link" tiene el link de Drive
         # del regalo completo. Mientras esté vacío, no se manda nada.
-        "bonus_promo": {
+        "bonus_promo_DESACTIVADO": {
             "titulo": "Guía gráfica de Diseño Residencial (eBook de Luis Furushio)",
             "link": "https://drive.google.com/file/d/17516DKeXpsCORRvP4W1LjZfv3BdpPLoL/view?usp=sharing",  # eBook COMPLETO (se entrega después del pago)
             "password": "Orange-Black-Sky9",  # contraseña del PDF (se le manda al cliente junto con el regalo)
@@ -186,13 +207,13 @@ PRODUCTOS = {
             "segundos_recordatorio": 600,  # 10 minutos: segundo aviso si todavía no compró
         },
         "manuales": [
-            {"titulo": "Cómo se proyecta una Vivienda", "autor": "J.L. Moia",
+            {"titulo": "Cómo se proyecta una Vivienda", "imagen": "https://i.ibb.co/Zp0bL2Gm/image.png", "autor": "J.L. Moia",
              "link": "https://drive.google.com/file/d/114PXZLc-QRsfuEF3eSVSMlWEq_ICbJgQ/view?usp=sharing"},
-            {"titulo": "Manual de Instalaciones Hidráulicas, Sanitarias, Aire, Gas y Vapor", "autor": "Ing. Sergio Zepeda C.",
+            {"titulo": "Manual de Instalaciones Hidráulicas, Sanitarias, Aire, Gas y Vapor", "imagen": "https://i.ibb.co/GfpG5xQK/image.png", "autor": "Ing. Sergio Zepeda C.",
              "link": "https://drive.google.com/file/d/1ooDTnZyEAWwz_SeKjRxgps9N7FhwWiPS/view?usp=sharing"},
-            {"titulo": "Método práctico para la elaboración de presupuestos de construcción", "autor": "Arq. William García",
+            {"titulo": "Método práctico para la elaboración de presupuestos de construcción", "imagen": "https://i.ibb.co/V0j8grhY/image.png", "autor": "Arq. William García",
              "link": "https://drive.google.com/file/d/1kfJe0vmQtXBl3p_mJ39kkU0GU-OwUDst/view?usp=sharing"},
-            {"titulo": "Manual de Autoconstrucción", "autor": "Carlos Rodríguez",
+            {"titulo": "Manual de Autoconstrucción", "imagen": "https://i.ibb.co/qMrRY3Gh/image.png", "autor": "Carlos Rodríguez",
              "link": "https://drive.google.com/file/d/1sbUe7XD2FRM5A-f2I6opXDoMF9y2gO1Q/view?usp=sharing"},
             {"titulo": "Manual del Arquitecto Descalzo", "autor": "Johan van Lengen",
              "link": "https://drive.google.com/file/d/1MhPK80rcTAnvZwbo2wv1wXAyxsrAgTFb/view?usp=sharing"},
