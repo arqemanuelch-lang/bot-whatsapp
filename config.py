@@ -51,6 +51,14 @@ TEXTO_BOTON_LISTA = "📋 Ver productos"   # máx. 20 caracteres
 # seteada ahí, tiene prioridad sobre este valor).
 NUMERO_RESPALDO_DEFAULT = "+54 9 11 5143-9788"
 
+# Números a los que NO se les manda el seguimiento automático (avisos de 5 min y
+# 1 hora). Es por prefijo de teléfono (código de país + área). Si escriben, el
+# bot igual les responde y pueden comprar; solo se corta la insistencia.
+#   "54911" / "5411"  -> CABA y Gran Buenos Aires (área 11)
+# Si querés sumar ciudades de la provincia, agregá por ejemplo:
+#   "549221" (La Plata), "549223" (Mar del Plata), "549291" (Bahía Blanca)
+PREFIJOS_SIN_SEGUIMIENTO = ["54911", "5411"]
+
 # Mensaje final de agradecimiento (se manda un rato después de entregar la compra).
 # Pegá acá el link de tu página/Facebook/Instagram donde quieras el comentario.
 # Si lo dejás vacío "", el mensaje sale igual pero sin link.
@@ -77,7 +85,7 @@ DATOS_TRANSFERENCIA = {
 PROMPT_SISTEMA_IA = (
     "Sos un asistente de ventas por WhatsApp para Droply IA, un negocio que vende "
     "productos digitales. Hoy vende: el Kit Maestro de Arquitectura y "
-    "Construcción (16 manuales técnicos en PDF, $5.500), el Pack Retro Games (juegos clásicos para el celular, $3.000) y la Canción Personalizada con su nombre ($15.000). "
+    "Construcción (16 manuales técnicos en PDF, $5.500), la Colección de Libros de Artes Marciales (25 carpetas de disciplinas, más de 1 GB de material digital, $6.500), el Pack Retro Games (juegos clásicos para el celular, $3.000) y la Canción Personalizada con su nombre ($15.000). "
     "Respondé breve, claro y amable en español. Si el cliente pregunta por algo que no "
     "sea uno de esos tres productos, decile que por ahora solo están esos tres. "
     "Orientalo a escribir el nombre del producto (*kit maestro*, *retro games* o *canción*) para que el sistema le muestre la ficha completa."
@@ -255,6 +263,61 @@ PRODUCTOS = {
         ],
         "manuales": [],  # este producto no usa manuales/PDFs
     },
+    "artes_marciales": {
+        "titulo": "Colección de Libros de Artes Marciales",
+        "titulo_boton": "Artes Marciales",  # máx. 20 caracteres
+        "descripcion_corta": "25 carpetas · más de 1 GB de material",
+        "precio": "$6.500",
+        "precio_oferta": "$6.500",
+        "precio_valor": 6500,
+        "imagen": "https://i.ibb.co/bRzGx6NH/1-1.png",
+        "imagen_oferta": "https://i.ibb.co/bRzGx6NH/1-1.png",
+        "emoji_ficha": "🥋",
+        "saludo": (
+            "¡Hola! 👋 Gracias por tu interés en la *Colección de Libros de Artes Marciales* 🥋\n\n"
+            "Una biblioteca digital para los apasionados de las artes marciales. Te cuento qué incluye 👇"
+        ),
+        # Carpeta de Drive con todo el contenido. Se manda cuando se confirma el pago.
+        "link_carpeta_final": "https://drive.google.com/drive/folders/1BwKeFXnaS_ZKkmLMtEgUGCTk9Nk3piMv?usp=sharing",
+        "que_incluye": [
+            "Más de 1 GB de material digital, en 25 carpetas por disciplina",
+            "Boxeo, Muay Thai, Krav Maga, Defensa Personal, Lucha y Combate Militar",
+            "Judo, Karate, Kyokushin, Aikido, Kendo, Jiujutsu y Ninjutsu",
+            "Taekwondo, Hapkido, Kung Fu, Wushu, Chi Kung y Tai Chi",
+            "Armas (Kobudo y Nunchaku), filosofía marcial y estrategia",
+            "Acondicionamiento físico, anatomía, psicomotricidad y Kyusho",
+            "Una carpeta completa de Bruce Lee",
+            "Libros sueltos como la colección Aprendiendo Budo Taijutsu",
+            "Entrega inmediata por Google Drive después de confirmar el pago",
+            "Pago único, sin suscripciones",
+        ],
+        "texto_incluye": (
+            "🥋 *Esto es lo que incluye la colección*\n"
+            "Más de *1 GB* de material digital, ordenado en *25 carpetas* por disciplina 👇\n\n"
+            "🥊 *Combate y deportes de contacto*\n"
+            "Boxeo · Muay Thai · Lucha · Krav Maga · Lima Lama · Kenpo Kajukenbo · Combate Militar · Defensa Personal\n\n"
+            "🇯🇵 *Artes marciales japonesas*\n"
+            "Judo · Karate · Kyokushin · Aikido · Kendo · Jiujutsu · Ninjutsu y Shinobi Jutsu\n\n"
+            "🇰🇷🇨🇳 *Coreanas y chinas*\n"
+            "Taekwondo · Hapkido · Kung Fu · Wushu · Chi Kung · Tai Chi\n\n"
+            "⚔️ *Armas, filosofía y estrategia*\n"
+            "Kobudo y Nunchaku · Filosofía marcial y estrategia\n\n"
+            "💪 *Cuerpo y preparación*\n"
+            "Acondicionamiento físico · Anatomía y fisiología · Psicomotricidad · Kyusho y acupuntura\n\n"
+            "🐉 *Bruce Lee*\n"
+            "Una carpeta dedicada\n\n"
+            "📘 *Y además, libros sueltos* como la colección Aprendiendo Budo Taijutsu, "
+            "Antiguas y modernas artes marciales de Corea y Armas de combate callejero\n\n"
+            "⚡ Entrega inmediata por Google Drive\n"
+            "📱 Se abre en celular, tablet y computadora\n"
+            "✅ Pago único, sin suscripciones"
+        ),
+        "mensaje_precio": (
+            "💰 *Precio:* $6.500 (pago único)\n\n"
+            "Escribí *ALIAS* y te paso todos los datos para transferir. 👇"
+        ),
+        "manuales": [],  # este producto no usa lista de libros
+    },
     "cancion_personalizada": {
         "titulo": "Canción Personalizada con su Nombre",
         "titulo_boton": "Canción a medida",  # texto del botón en el menú (máx. 20 caracteres)
@@ -366,6 +429,18 @@ PALABRAS_POR_PRODUCTO = {
         "arcade",
         "emulador",
         "juegos para el celular",
+    ],
+    "artes_marciales": [
+        "artes marciales",
+        "libros de artes marciales",
+        "coleccion de artes marciales",
+        "karate",
+        "judo",
+        "taekwondo",
+        "kung fu",
+        "krav maga",
+        "muay thai",
+        "defensa personal",
     ],
     "cancion_personalizada": [
         "cancion",
