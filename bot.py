@@ -137,7 +137,43 @@ RECORDATORIOS_PENDIENTES = {}  # numero -> threading.Timer (el de 3 minutos)
 RECORDATORIOS_PENDIENTES_LARGO = {}  # numero -> threading.Timer (el de 1 hora)
 RECORDATORIOS_PENDIENTES_MEDIO = {}  # numero -> threading.Timer (el de 10 minutos, solo con promo de bonus)
 ULTIMA_INTERACCION = {}  # numero -> timestamp (time.time()) de la última acción del usuario
-PRODUCTO_ACTUAL = {}  # numero -> clave del último producto que le mostramos (para "alias", "que incluye", etc.)
+class _ProductoActual(dict):
+    """numero -> clave del último producto que el cliente vio o tocó. Se guarda
+    también en la base, así sobrevive a un reinicio del servidor (si el disco
+    persiste) y se comparte entre procesos."""
+
+    def _con(self):
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute("CREATE TABLE IF NOT EXISTS producto_cliente (numero TEXT PRIMARY KEY, clave TEXT)")
+        return conn
+
+    def __setitem__(self, numero, clave):
+        super().__setitem__(numero, clave)
+        try:
+            conn = self._con()
+            conn.execute("INSERT OR REPLACE INTO producto_cliente (numero, clave) VALUES (?, ?)", (numero, clave))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print("No pude guardar el producto del cliente:", e)
+
+    def get(self, numero, default=None):
+        valor = super().get(numero)
+        if valor is not None:
+            return valor
+        try:
+            conn = self._con()
+            fila = conn.execute("SELECT clave FROM producto_cliente WHERE numero = ?", (numero,)).fetchone()
+            conn.close()
+            if fila and fila[0]:
+                super().__setitem__(numero, fila[0])
+                return fila[0]
+        except Exception as e:
+            print("No pude leer el producto del cliente:", e)
+        return default
+
+
+PRODUCTO_ACTUAL = _ProductoActual()  # numero -> clave del último producto (para "alias", "que incluye", aprobar pago, etc.)
 
 
 def marcar_interaccion(numero):
@@ -745,7 +781,7 @@ def enviar_notificacion_telegram(numero, resumen_texto):
         print("Error notificando a Telegram:", e)
 
 
-def enviar_notificacion_telegram_comprobante(numero, comprobante_id, clave="kit_maestro"):
+def enviar_notificacion_telegram_comprobante(numero, comprobante_id, clave=None):
     """Notificación especial cuando llega un comprobante de pago: en vez
     del menú de categorías normal, incluye un botón para aprobar el pago
     y mandar la carpeta de manuales al instante, sin pasar por el panel."""
@@ -764,13 +800,27 @@ def enviar_notificacion_telegram_comprobante(numero, comprobante_id, clave="kit_
             f"{encabezado}\n"
             f"🕒 {hora}\n\n"
             "Mandó un comprobante. Revisalo en el panel, o tocá el botón para "
-            "aprobarlo y mandarle la carpeta de manuales al instante."
+            "aprobarlo y mandarle la carpeta al instante.\n\n"
         )
+        if clave in PRODUCTOS:
+            texto_formateado += f"🛒 Producto: <b>{_escapar_html(PRODUCTOS[clave]['titulo'])}</b>"
+            botones_aprobar = [[{
+                "text": f"✅ Aprobar y enviar: {(PRODUCTOS[clave].get('titulo_boton') or PRODUCTOS[clave]['titulo'])[:30]}",
+                "callback_data": f"aprobar:{comprobante_id}:{clave}:{numero}",
+            }]]
+        else:
+            texto_formateado += "⚠️ No sé qué producto eligió. Elegí cuál aprobar según lo que pagó:"
+            botones_aprobar = [
+                [{
+                    "text": f"✅ Aprobar: {(p.get('titulo_boton') or p['titulo'])[:30]}",
+                    "callback_data": f"aprobar:{comprobante_id}:{k}:{numero}",
+                }]
+                for k, p in PRODUCTOS.items()
+            ]
         teclado = {
             "inline_keyboard": [
                 [{"text": "📱 Hablar personalmente", "url": f"https://wa.me/{numero}"}],
-                [{"text": "✅ Aprobar y enviar carpeta", "callback_data": f"aprobar:{comprobante_id}:{clave}:{numero}"}],
-            ]
+            ] + botones_aprobar
         }
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         resp = requests.post(
@@ -1057,7 +1107,7 @@ def receive_message():
                 # Usamos el producto que realmente le mostramos a este
                 # cliente (no siempre "kit_maestro"), para que el botón de
                 # aprobar en Telegram mande el archivo correcto.
-                clave_producto_actual = PRODUCTO_ACTUAL.get(from_number, next(iter(PRODUCTOS)))
+                clave_producto_actual = PRODUCTO_ACTUAL.get(from_number)  # None si no sabemos cuál es
                 enviar_notificacion_telegram_comprobante(from_number, comprobante_id, clave_producto_actual)
                 producto_actual = PRODUCTOS.get(clave_producto_actual, {})
                 texto_cantidad = _texto_entrega(producto_actual) if producto_actual else "tu compra"
@@ -1487,6 +1537,8 @@ def manejar_boton(from_number, opcion_id):
     # Los ids vienen con el formato "accion:clave_producto" (ej: "ver_resena:kit_maestro").
     # "hablar_vendedor" no tiene clave porque no depende de un producto puntual.
     accion, _, clave = opcion_id.partition(":")
+    if clave in PRODUCTOS:
+        PRODUCTO_ACTUAL[from_number] = clave  # recordamos qué producto está mirando/comprando
 
     if accion == "ver_pack" and clave in PRODUCTOS:
         enviar_ficha_producto(from_number, clave)
