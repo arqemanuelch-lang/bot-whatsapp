@@ -321,6 +321,15 @@ def programar_recordatorio_compra(numero, clave):
     Si ya había recordatorios pendientes, los reemplaza (reinicia el conteo)."""
     cancelar_recordatorio(numero)
 
+    # Números excluidos del seguimiento (ej: CABA / Gran Buenos Aires).
+    try:
+        import config as _cfg
+        _num_limpio = "".join(ch for ch in str(numero) if ch.isdigit())
+        if any(_num_limpio.startswith(p) for p in getattr(_cfg, "PREFIJOS_SIN_SEGUIMIENTO", [])):
+            return
+    except Exception as e:
+        print("Error revisando prefijos sin seguimiento:", e)
+
     def _recordatorio_corto():
         RECORDATORIOS_PENDIENTES.pop(numero, None)
         producto = PRODUCTOS.get(clave)
@@ -1633,7 +1642,7 @@ def enviar_menu_productos(to):
     filas = [
         {
             "id": f"ver_pack:{clave}",
-            "title": producto["titulo"][:24],
+            "title": (producto.get("titulo_boton") or producto["titulo"])[:24],
             "description": f"{producto['descripcion_corta']} · {producto['precio']}"[:72],
         }
         for clave, producto in PRODUCTOS.items()
@@ -1741,6 +1750,9 @@ def _enviar_secuencia_ficha(to, clave):
             for regalo in producto["regalo_sorpresa"]:
                 lineas.append(f"🎁 {regalo}")
         enviar_mensaje_texto(to, "\n".join(lineas))
+    elif producto.get("texto_incluye"):
+        # Texto armado a mano en config.py (con secciones y emojis).
+        enviar_mensaje_texto(to, producto["texto_incluye"])
     elif producto.get("que_incluye"):
         lineas = [f"✨ *¿Qué incluye tu plan?*\n"]
         for item in producto["que_incluye"]:
