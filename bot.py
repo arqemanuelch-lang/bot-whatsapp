@@ -159,13 +159,13 @@ class _ProductoActual(dict):
 
     def get(self, numero, default=None):
         valor = super().get(numero)
-        if valor is not None:
+        if valor is not None and valor in PRODUCTOS:
             return valor
         try:
             conn = self._con()
             fila = conn.execute("SELECT clave FROM producto_cliente WHERE numero = ?", (numero,)).fetchone()
             conn.close()
-            if fila and fila[0]:
+            if fila and fila[0] and fila[0] in PRODUCTOS:
                 super().__setitem__(numero, fila[0])
                 return fila[0]
         except Exception as e:
@@ -325,6 +325,103 @@ def _enviar_recordatorio_bonus(numero, clave):
     enviar_botones_pack(numero, clave, texto="¿Cómo querés avanzar?", incluir_ver=False)
 
 
+# ---------------------------------------------------------------------
+#  Promo "solo por hoy" (por cliente, una sola vez, hasta las 23:59 de Argentina)
+# ---------------------------------------------------------------------
+def _tabla_promos_hoy():
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS promos_hoy (numero TEXT, clave TEXT, precio TEXT, "
+        "precio_valor REAL, vence REAL, PRIMARY KEY (numero, clave))"
+    )
+    return conn
+
+
+def promo_hoy_ya_ofrecida(numero, clave):
+    try:
+        conn = _tabla_promos_hoy()
+        fila = conn.execute("SELECT 1 FROM promos_hoy WHERE numero = ? AND clave = ?", (numero, clave)).fetchone()
+        conn.close()
+        return bool(fila)
+    except Exception as e:
+        print("Error leyendo promo de hoy:", e)
+        return False
+
+
+def activar_promo_hoy(numero, clave, precio, precio_valor):
+    ahora = datetime.now(timezone(timedelta(hours=-3)))  # hora de Argentina
+    vence = ahora.replace(hour=23, minute=59, second=59, microsecond=0).timestamp()
+    conn = _tabla_promos_hoy()
+    conn.execute(
+        "INSERT OR REPLACE INTO promos_hoy (numero, clave, precio, precio_valor, vence) VALUES (?, ?, ?, ?, ?)",
+        (numero, clave, precio, float(precio_valor), vence),
+    )
+    conn.commit()
+    conn.close()
+
+
+def promo_hoy_vigente(numero, clave):
+    """Devuelve {'precio', 'precio_valor'} si este cliente tiene la promo de
+    hoy todavía vigente; si no, None."""
+    try:
+        conn = _tabla_promos_hoy()
+        fila = conn.execute(
+            "SELECT precio, precio_valor, vence FROM promos_hoy WHERE numero = ? AND clave = ?",
+            (numero, clave),
+        ).fetchone()
+        conn.close()
+    except Exception as e:
+        print("Error leyendo promo de hoy:", e)
+        return None
+    if fila and time.time() <= fila[2]:
+        return {"precio": fila[0], "precio_valor": fila[1]}
+    return None
+
+
+def _producto_para(numero, clave):
+    """El producto con el precio que le corresponde a ESTE cliente (la promo de
+    hoy, si la tiene vigente; si no, el precio normal)."""
+    base = PRODUCTOS.get(clave)
+    if not base:
+        return None
+    promo = promo_hoy_vigente(numero, clave)
+    if not promo:
+        return base
+    p = dict(base)
+    p["precio"] = promo["precio"]
+    p["precio_oferta"] = promo["precio"]
+    p["precio_valor"] = promo["precio_valor"]
+    return p
+
+
+def _enviar_promo_hoy(numero, clave):
+    producto = PRODUCTOS.get(clave)
+    promo = (producto or {}).get("promo_hoy")
+    if not producto or not promo:
+        return
+    if promo_hoy_ya_ofrecida(numero, clave):
+        return  # la promo de hoy se ofrece una sola vez por cliente
+    activar_promo_hoy(numero, clave, promo["precio"], promo["precio_valor"])
+    if str(promo.get("imagen", "")).strip():
+        enviar_imagen(numero, promo["imagen"])
+        time.sleep(2)
+    enviar_mensaje_texto(
+        numero,
+        "🔥 *PROMO SOLO POR HOY* 🔥\n\n"
+        f"La *{producto['titulo']}* que viste hoy te sale *{promo['precio']}* "
+        f"en lugar de {producto['precio']}.\n\n"
+        f"⏰ Este precio vale *hasta las 23:59 de hoy*. Mañana vuelve a {producto['precio']}.\n\n"
+        "Mirá todo lo que recibís 👇",
+    )
+    time.sleep(2)
+    if producto.get("texto_incluye"):
+        enviar_mensaje_texto(numero, producto["texto_incluye"])
+        time.sleep(2)
+    enviar_mensaje_texto(numero, "✍️ Escribí *ALIAS* y te paso todos los datos para transferir. 👇")
+    time.sleep(2)
+    enviar_botones_pack(numero, clave, texto="O si preferís, tocá el botón 👇", incluir_ver=False)
+
+
 def _enviar_recordatorio_fuerte(numero, clave):
     """Mensaje de venta directo (a los 5 min si no compró): beneficios, precio,
     adelanto breve de cada libro por si tiene dudas, y botón de compra."""
@@ -440,16 +537,35 @@ def programar_recordatorio_compra(numero, clave):
             PRODUCTOS[clave]["recordatorio_fuerte"].get("segundos", 300),
         ))
         timer_corto = threading.Timer(espera_f, _fuerte)
+    elif PRODUCTOS.get(clave, {}).get("sin_recordatorio_corto"):
+        timer_corto = None  # este producto no manda nada a los 3 minutos
     else:
         timer_corto = threading.Timer(SEGUNDOS_RECORDATORIO_CORTO, _recordatorio_corto)
-    timer_corto.daemon = True
-    RECORDATORIOS_PENDIENTES[numero] = timer_corto
-    timer_corto.start()
+    if timer_corto is not None:
+        timer_corto.daemon = True
+        RECORDATORIOS_PENDIENTES[numero] = timer_corto
+        timer_corto.start()
 
     timer_largo = threading.Timer(SEGUNDOS_RECORDATORIO_LARGO, _recordatorio_largo)
     timer_largo.daemon = True
     RECORDATORIOS_PENDIENTES_LARGO[numero] = timer_largo
     timer_largo.start()
+
+    # Promo "solo por hoy" (si el producto la tiene): se manda a los N segundos
+    # (15 min) si todavía no compró.
+    promo_hoy = PRODUCTOS.get(clave, {}).get("promo_hoy")
+    if promo_hoy and numero not in RECORDATORIOS_PENDIENTES_MEDIO:
+        def _promo_hoy():
+            RECORDATORIOS_PENDIENTES_MEDIO.pop(numero, None)
+            if time.time() - ULTIMA_INTERACCION.get(numero, 0) < 10:
+                return
+            _enviar_promo_hoy(numero, clave)
+
+        espera_p = float(os.getenv("SEGUNDOS_PROMO_HOY", promo_hoy.get("segundos", 900)))
+        timer_promo = threading.Timer(espera_p, _promo_hoy)
+        timer_promo.daemon = True
+        RECORDATORIOS_PENDIENTES_MEDIO[numero] = timer_promo
+        timer_promo.start()
 
 # Gemini: usamos la "Interactions API", que es la que funciona con las claves
 # nuevas de Google AI Studio (las que empiezan con "AQ.").
@@ -804,6 +920,11 @@ def enviar_notificacion_telegram_comprobante(numero, comprobante_id, clave=None)
         )
         if clave in PRODUCTOS:
             texto_formateado += f"🛒 Producto: <b>{_escapar_html(PRODUCTOS[clave]['titulo'])}</b>"
+            _p = _producto_para(numero, clave)
+            if promo_hoy_vigente(numero, clave):
+                texto_formateado += f"\n💰 Precio acordado: <b>{_escapar_html(_p['precio'])}</b> (promo de hoy; normal {_escapar_html(PRODUCTOS[clave]['precio'])})"
+            else:
+                texto_formateado += f"\n💰 Precio: <b>{_escapar_html(PRODUCTOS[clave]['precio'])}</b>"
             botones_aprobar = [[{
                 "text": f"✅ Aprobar y enviar: {(PRODUCTOS[clave].get('titulo_boton') or PRODUCTOS[clave]['titulo'])[:30]}",
                 "callback_data": f"aprobar:{comprobante_id}:{clave}:{numero}",
@@ -1438,7 +1559,7 @@ def _enviar_flujo_compra(numero, clave):
     una pausa corta entre cada uno para que no se sienta tan robótico/
     instantáneo. Corre en un hilo aparte para no atrasar la respuesta del
     webhook a Meta."""
-    producto = PRODUCTOS.get(clave)
+    producto = _producto_para(numero, clave)
     if not producto:
         return
 
@@ -1548,7 +1669,7 @@ def manejar_boton(from_number, opcion_id):
         enviar_botones_pack(from_number, clave, incluir_ver=False)
 
     elif accion == "comprar_pack" and clave in PRODUCTOS:
-        producto = PRODUCTOS[clave]
+        producto = _producto_para(from_number, clave)
 
         # Si Mercado Pago está configurado, generamos un link de pago único
         # para este cliente. Es una opción ADEMÁS de la transferencia, no en
@@ -2203,7 +2324,7 @@ def crear_preferencia_pago(numero, clave):
     este producto. Devuelve el link, o None si algo falla."""
     if not MP_ACCESS_TOKEN or not BASE_URL:
         return None
-    producto = PRODUCTOS.get(clave)
+    producto = _producto_para(numero, clave)
     if not producto:
         return None
 
