@@ -40,8 +40,9 @@ MENSAJE_BIENVENIDA_MENU = (
 # haber tocado un anuncio ni escrito el nombre de un producto. La lista de
 # productos aparece recién cuando toca el botón.
 MENSAJE_BIENVENIDA_SIMPLE = (
-    "¡Hola! 👋 Bienvenido a Droply IA. Estamos para ayudarte. "
-    "Tocá el botón de abajo para ver lo que tenemos disponible 👇"
+    "¡Hola{nombre}! 👋 Qué bueno tenerte por acá. Soy el asistente de Droply IA "
+    "y estoy para ayudarte. 😊\n\n"
+    "Tocá el botón de abajo y mirá lo que tenemos para vos 👇"
 )
 TEXTO_BOTON_LISTA = "📋 Ver productos"   # máx. 20 caracteres
 
@@ -167,16 +168,60 @@ PRODUCTOS = {
         # --- Ficha en modo "oferta de libros": saludo, oferta, cada libro con su
         # portada (título + autor), el regalo y el precio con botón de compra.
         "modo_oferta_libros": True,
-        # A los 5 minutos sin comprar: mensaje de venta directo con el adelanto de cada libro.
+        # A los 5 minutos sin comprar: mensaje de venta cálido con el adelanto de cada libro.
         "recordatorio_fuerte": {"segundos": 300},
         "saludo": (
-            "¡Hola! 👋 Gracias por tu interés en el *Kit Maestro de Arquitectura y Construcción* 🏗️\n\n"
-            "Te cuento qué te llevás 👇"
+            "¡Hola{nombre}! 👋 Qué bueno que me escribiste. Te cuento sobre el "
+            "*Kit Maestro de Arquitectura y Construcción* 🏗️\n\n"
+            "Es una biblioteca pensada para que proyectes, calcules y construyas con más seguridad, "
+            "ya seas estudiante, profesional o estés levantando tu propia casa. 💪"
         ),
         "oferta_intro": (
-            "🔥 *OFERTA ÚNICA* 🔥\n\n"
-            "Llevate estos libros por solo *$5.500*:"
+            "Por solo *$5.500* te llevás estos *{n} libros* 🙌\n"
+            "Mirá cuáles son 👇"
         ),
+        "sin_botones_ficha": True,  # la ficha termina en el mensaje de ALIAS, sin botones
+        # A los 20 minutos sin comprar: explica cómo es la compra, para sacar dudas.
+        # A los 20 minutos sin comprar: precio especial SOLO HASTA LAS 23:59 DE HOY (el bot lo cumple de
+        # verdad y se ofrece una sola vez por cliente). Reemplaza al mensaje "recordatorio_extra".
+        "promo_hoy": {
+            "segundos": 1200,
+            "precio": "$4.500",
+            "precio_valor": 4500,
+            "sin_botones": True,
+            "texto": (
+                "¡Hola{nombre}! 🔥 Tengo una sorpresa para vos\n\n"
+                "*PRECIO ESPECIAL SOLO POR HOY*\n"
+                "El *Kit Maestro* con los 16 libros y el plus sorpresa te sale *{precio}* "
+                "en lugar de {normal}.\n\n"
+                "⏰ Vale *hasta las 23:59 de hoy*. Mañana vuelve a {normal}.\n\n"
+                "Te cuento cómo es, para que te quedes tranquilo:\n"
+                "1️⃣ Me escribís *ALIAS* y te paso los datos para transferir.\n"
+                "2️⃣ Transferís {precio} y me mandás la foto del comprobante.\n"
+                "3️⃣ Apenas lo verifico, te llega el link de Drive con todo. 📂\n\n"
+                "Si tenés cualquier duda, escribime y te respondo enseguida. 🙌"
+            ),
+        },
+        # (Mensaje alternativo de 20 min; solo se usa si se quita la promo de arriba.)
+        "recordatorio_extra": {
+            "segundos": 1200,
+            "texto": (
+                "¡Hola{nombre}! 😊 Te escribo para que te quedes tranquilo con la compra, "
+                "así que te cuento cómo funciona:\n\n"
+                "1️⃣ Me escribís *ALIAS* y te paso los datos para transferir.\n"
+                "2️⃣ Transferís {precio} y me mandás la foto del comprobante.\n"
+                "3️⃣ Apenas lo verifico, te llega el link de Drive con todo: los 16 libros y el plus sorpresa. 📂\n\n"
+                "Lo abrís desde el celular o la compu y podés descargarlo para tenerlo siempre con vos. 💾\n\n"
+                "Si tenés cualquier duda, escribime y te respondo enseguida. 🙌"
+            ),
+            "texto_alias": "✍️ ¿Arrancamos? Escribime *ALIAS* y te paso los datos. 👇",
+        },
+        "enviar_portadas": False,  # no manda una imagen por cada libro (queda solo el banner)
+        "texto_vista_breve": "👀 *Y acá podés ver un adelanto de cada uno, sin compromiso:*",
+        "texto_libros_regalo": "🎁 *Y no solo eso: además te llevás de REGALO estos {n} libros:*",
+        "texto_regalo": "🎁 *Y para que arranques con todo, también te regalo:*",
+        "texto_alias": "✍️ ¿Te sirve? Escribime *ALIAS* y te paso los datos para transferir. ¡Es rápido! 👇",
+        "texto_botones": "O si preferís, tocá el botón 👇",
         "descripcion_corta": "16 manuales técnicos en PDF",
         "precio": "$5.500",
         "precio_oferta": "$5.500",
@@ -193,10 +238,9 @@ PRODUCTOS = {
         # Regalo y mensaje de precio con apuro, SIN fecha de vencimiento.
         "regalo_sorpresa": ["Un plus único y sorpresa que te va a ayudar en el mundo de la construcción"],
         "mensaje_precio": (
-            "💰 *Precio:* $5.500  (precio normal ~$6.000~)\n"
-            "🎁 Y de regalo: un plus único y sorpresa que te va a ayudar en el mundo de la construcción\n\n"
-            "⚡ Es el precio vigente ahora y puede subir sin aviso, y el regalo es "
-            "por tiempo limitado. Si te interesa, aprovechalo hoy."
+            "💰 *Todo por $5.500*  (precio normal ~$6.000~)\n"
+            "Es un pago único: lo pagás una sola vez y es tuyo.\n\n"
+            "Es el precio que tenemos ahora y puede subir más adelante, así que si te sirve, aprovechalo. 😉"
         ),
         # --- PROMO DE LOS 5 MINUTOS (bonus) ---
         # Si alguien ve la ficha y a los 5 minutos no avanzó, el bot le manda
@@ -229,15 +273,15 @@ PRODUCTOS = {
              "link": "https://drive.google.com/file/d/1ETqTBa_nxWLigyHmQY8mvoeqqS49AIH3/view?usp=sharing"},
             {"titulo": "Instalaciones Sanitarias", "autor": "Jorge Ortíz",
              "link": "https://drive.google.com/file/d/1rd-tAxh3Qk8wcp-6TlFmzpjwzs25SEdA/view?usp=sharing"},
-            {"titulo": "Arquitectura: Forma, espacio y orden", "autor": "Francis D.K. Ching"},  # solo en lista, sin adelanto
-            {"titulo": "Diccionario visual de arquitectura", "autor": "Francis D.K. Ching"},  # solo en lista, sin adelanto
-            {"titulo": "Diseño de interiores: Un manual", "autor": "Francis D.K. Ching"},  # solo en lista, sin adelanto
-            {"titulo": "Manual de dibujo arquitectónico", "autor": "Francis D.K. Ching"},  # solo en lista, sin adelanto
-            {"titulo": "Design Drawing, 2nd Ed (ePub, en inglés)", "autor": "Francis D.K. Ching"},  # solo en lista, sin adelanto
-            {"titulo": "Guía de Construcción Ilustrada", "autor": "Francis D.K. Ching"},  # solo en lista, sin adelanto
-            {"titulo": "Manual de estructuras ilustrado", "autor": "Francis D.K. Ching"},  # solo en lista, sin adelanto
-            {"titulo": "Historia global de la arquitectura", "autor": "Francis D.K. Ching y Mark Jarzombek"},  # solo en lista, sin adelanto
-            {"titulo": "Arquitectura ecológica: Un manual ilustrado", "autor": "Francis D.K. Ching e Ian M. Shapiro"},  # solo en lista, sin adelanto
+            {"titulo": "Arquitectura: Forma, espacio y orden", "autor": "Francis D.K. Ching", "regalo": True},  # de regalo, sin adelanto
+            {"titulo": "Diccionario visual de arquitectura", "autor": "Francis D.K. Ching", "regalo": True},  # de regalo, sin adelanto
+            {"titulo": "Diseño de interiores: Un manual", "autor": "Francis D.K. Ching", "regalo": True},  # de regalo, sin adelanto
+            {"titulo": "Manual de dibujo arquitectónico", "autor": "Francis D.K. Ching", "regalo": True},  # de regalo, sin adelanto
+            {"titulo": "Design Drawing, 2nd Ed (ePub, en inglés)", "autor": "Francis D.K. Ching", "regalo": True},  # de regalo, sin adelanto
+            {"titulo": "Guía de Construcción Ilustrada", "autor": "Francis D.K. Ching", "regalo": True},  # de regalo, sin adelanto
+            {"titulo": "Manual de estructuras ilustrado", "autor": "Francis D.K. Ching", "regalo": True},  # de regalo, sin adelanto
+            {"titulo": "Historia global de la arquitectura", "autor": "Francis D.K. Ching y Mark Jarzombek", "regalo": True},  # de regalo, sin adelanto
+            {"titulo": "Arquitectura ecológica: Un manual ilustrado", "autor": "Francis D.K. Ching e Ian M. Shapiro", "regalo": True},  # de regalo, sin adelanto
         ],
     },
     "pack_retro_games": {
@@ -250,6 +294,16 @@ PRODUCTOS = {
         "imagen": "https://i.ibb.co/chHf0R6Q/cf1c03b1-1b60-4da4-a90e-ecdebe5ccf99-1.png",
         "imagen_oferta": "https://i.ibb.co/chHf0R6Q/cf1c03b1-1b60-4da4-a90e-ecdebe5ccf99-1.png",
         "emoji_ficha": "🎮",
+        "saludo": (
+            "¡Hola{nombre}! 👋 Qué bueno que me escribiste. Te cuento sobre el "
+            "*Pack Retro Games* 🎮\n\n"
+            "Son los juegos clásicos con los que crecimos, para que los vuelvas a jugar directo en tu celular. "
+            "Mirá qué incluye 👇"
+        ),
+        "mensaje_precio": (
+            "💰 *Todo por $3.000* (pago único: lo pagás una sola vez y es tuyo)\n\n"
+            "¿Te sirve? Escribime *ALIAS* y te paso los datos para transferir. ¡Es rápido! 👇"
+        ),
         # Carpeta de Drive con todo el pack. Se manda este link único cuando
         # se confirma el pago.
         "link_carpeta_final": "https://drive.google.com/drive/folders/1_LnUPbe7YTVMEZDkXP4vpWgAJVNIp5h4?usp=sharing",
@@ -280,8 +334,10 @@ PRODUCTOS = {
                       "imagen": "https://i.ibb.co/7db2hyg6/image.png"},  # flyer que va junto con el mensaje
         "sin_recordatorio_corto": True,  # no manda nada a los 3 minutos
         "saludo": (
-            "¡Hola! 👋 Gracias por tu interés en la *Colección de Libros de Artes Marciales* 🥋\n\n"
-            "Una biblioteca digital para los apasionados de las artes marciales. Te cuento qué incluye 👇"
+            "¡Hola{nombre}! 👋 Qué bueno que me escribiste. Te cuento sobre la "
+            "*Colección de Libros de Artes Marciales* 🥋\n\n"
+            "Es una biblioteca digital pensada para los que viven las artes marciales, ya sea que recién empiecen, "
+            "entrenen hace años o enseñen. 💪 Mirá todo lo que incluye 👇"
         ),
         # Carpeta de Drive con todo el contenido. Se manda cuando se confirma el pago.
         "link_carpeta_final": "https://drive.google.com/drive/folders/1BwKeFXnaS_ZKkmLMtEgUGCTk9Nk3piMv?usp=sharing",
@@ -319,8 +375,8 @@ PRODUCTOS = {
             "✅ Pago único, sin suscripciones"
         ),
         "mensaje_precio": (
-            "💰 *Precio:* $6.500 (pago único)\n\n"
-            "Escribí *ALIAS* y te paso todos los datos para transferir. 👇"
+            "💰 *Todo por $6.500* (pago único: lo pagás una sola vez y es tuyo)\n\n"
+            "¿Te sirve? Escribime *ALIAS* y te paso los datos para transferir. ¡Es rápido! 👇"
         ),
         "manuales": [],  # este producto no usa lista de libros
     },
