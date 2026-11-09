@@ -1275,7 +1275,21 @@ def receive_message():
             media_obj = message_data.get(tipo, {})
             media_id = media_obj.get("id")
             mime_type = media_obj.get("mime_type", "")
-            if media_id:
+            if media_id and esperando_captura(from_number):
+                # Ya compró y le pedimos el comentario: esta imagen es la captura, NO un comprobante.
+                limpiar_esperando_captura(from_number)
+                guardar_comprobante(from_number, media_id, mime_type)
+                guardar_mensaje(from_number, "entrante", "📸 Captura de su comentario")
+                enviar_notificacion_telegram(
+                    from_number,
+                    "📸 Mandó la captura de su comentario (no es un pago). Está en el panel.",
+                )
+                enviar_mensaje_texto(
+                    from_number,
+                    "¡Muchas gracias por tu comentario! 🙏 Ya lo recibí. "
+                    "Disfrutá tu regalo y mucho éxito con tu negocio. 🎁",
+                )
+            elif media_id:
                 comprobante_id = guardar_comprobante(from_number, media_id, mime_type)
                 cancelar_recordatorio(from_number)
                 guardar_mensaje(
@@ -1585,6 +1599,12 @@ def manejar_texto(from_number, msg_body_lower):
     #      configurado, si todavía no le mostramos ninguno).
     if PRODUCTOS:
         clave_default = PRODUCTO_ACTUAL.get(from_number, next(iter(PRODUCTOS)))
+        # "QUIERO" suelto (o "lo quiero", "si quiero") = pide los datos de pago del
+        # producto que está viendo. Tiene que ser el mensaje entero: si dice
+        # "quiero información" no entra acá.
+        if msg_normalizado.strip(" !¡.?¿") in ("quiero", "lo quiero", "si quiero", "si lo quiero", "yo quiero", "quiero ya"):
+            manejar_boton(from_number, f"comprar_pack:{clave_default}")
+            return
         if any(frase in msg_normalizado for frase in FRASES_COMPRAR):
             manejar_boton(from_number, f"comprar_pack:{clave_default}")
             return
@@ -1725,6 +1745,7 @@ def manejar_boton(from_number, opcion_id):
         enviar_botones_pack(from_number, clave, incluir_ver=False)
 
     elif accion == "comprar_pack" and clave in PRODUCTOS:
+        limpiar_esperando_captura(from_number)  # quiere comprar de nuevo: su próxima imagen sí es un comprobante
         producto = _producto_para(from_number, clave)
 
         # Si Mercado Pago está configurado, generamos un link de pago único
@@ -2130,6 +2151,25 @@ def _secuencia_oferta_libros(to, clave):
     programar_recordatorio_compra(to, clave)
 
 
+def enviar_documento(to, doc_url, nombre_archivo, caption=""):
+    """Manda un PDF (u otro archivo) por WhatsApp desde una URL pública. Reintenta una vez."""
+    url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
+    headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "document",
+        "document": {"link": doc_url, "filename": nombre_archivo, "caption": caption},
+    }
+    exito = _post_a_meta(url, headers, payload)
+    if not exito:
+        time.sleep(2)
+        exito = _post_a_meta(url, headers, payload)
+    if exito:
+        guardar_mensaje(to, "saliente", f"[Documento] {nombre_archivo}")
+    return exito
+
+
 def enviar_imagen(to, imagen_url, caption=""):
     """Manda una imagen por WhatsApp. Reintenta una vez más si el primer
     intento falla (a veces Meta tarda en descargar la imagen y da timeout,
@@ -2161,7 +2201,8 @@ def enviar_botones_pack(to, clave, texto="¿Cómo querés avanzar?", incluir_ver
     botones = []
     if incluir_ver:
         botones.append({"type": "reply", "reply": {"id": f"ver_resena:{clave}", "title": "📚 Ver qué incluye"}})
-    botones.append({"type": "reply", "reply": {"id": f"comprar_pack:{clave}", "title": "💳 Quiero comprarlo"}})
+    titulo_compra = str((PRODUCTOS.get(clave) or {}).get("titulo_boton_compra", "")).strip() or "💳 Quiero comprarlo"
+    botones.append({"type": "reply", "reply": {"id": f"comprar_pack:{clave}", "title": titulo_compra[:20]}})
     botones.append({"type": "reply", "reply": {"id": "hablar_vendedor", "title": "💬 Hablar con asesor"}})
 
     payload = {
@@ -2327,7 +2368,11 @@ def enviar_manuales_completos(to, clave="kit_maestro"):
     except Exception as e:
         print("Error entregando bonus:", e)
     producto = PRODUCTOS.get(clave, {})
-    if not producto.get("cuestionario") and not producto.get("entrega_manual"):
+    if producto.get("mensaje_comentario"):
+        t = threading.Timer(producto.get("segundos_comentario", 300), _pedir_comentario_producto, args=(to, clave))
+        t.daemon = True
+        t.start()
+    elif not producto.get("cuestionario") and not producto.get("entrega_manual"):
         try:
             import config as _cfg
             t = threading.Timer(
@@ -2338,6 +2383,40 @@ def enviar_manuales_completos(to, clave="kit_maestro"):
             t.start()
         except Exception as e:
             print("Error programando pedido de comentario:", e)
+
+
+def _tabla_esperando_captura():
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("CREATE TABLE IF NOT EXISTS esperando_captura (numero TEXT PRIMARY KEY, hasta REAL)")
+    conn.commit()
+    return conn
+
+
+def marcar_esperando_captura(numero, dias=3):
+    """Después de pedir el comentario, la próxima imagen del cliente es la captura (no un comprobante)."""
+    conn = _tabla_esperando_captura()
+    conn.execute("INSERT OR REPLACE INTO esperando_captura (numero, hasta) VALUES (?, ?)", (numero, time.time() + dias * 86400))
+    conn.commit(); conn.close()
+
+
+def esperando_captura(numero):
+    conn = _tabla_esperando_captura()
+    fila = conn.execute("SELECT hasta FROM esperando_captura WHERE numero = ?", (numero,)).fetchone()
+    conn.close()
+    return bool(fila and fila[0] > time.time())
+
+
+def limpiar_esperando_captura(numero):
+    conn = _tabla_esperando_captura()
+    conn.execute("DELETE FROM esperando_captura WHERE numero = ?", (numero,))
+    conn.commit(); conn.close()
+
+
+def _pedir_comentario_producto(to, clave):
+    """Pedido de comentario propio del producto (config.py: mensaje_comentario)."""
+    producto = PRODUCTOS.get(clave, {})
+    enviar_mensaje_texto(to, producto["mensaje_comentario"])
+    marcar_esperando_captura(to)
 
 
 def _pedir_comentario(to, link):
@@ -2378,8 +2457,24 @@ def _enviar_contenido_principal(to, clave="kit_maestro"):
     link_carpeta = producto.get("link_carpeta_final")
     cantidad = len(producto["manuales"])
 
+    # Mensaje de entrega propio del producto (config.py). {link} = link de Drive (el PDF con todo).
+    pdf_entrega = str(producto.get("pdf_entrega", "")).strip()  # PDF alojado en la carpeta archivos/ del repo
+    if producto.get("mensaje_entrega") and (link_carpeta or pdf_entrega):
+        enviar_mensaje_texto(to, producto["mensaje_entrega"].replace("{link}", link_carpeta or ""))
+        if pdf_entrega:
+            time.sleep(2)
+            url_pdf = f"{BASE_URL}/archivos/{pdf_entrega}" if BASE_URL else ""
+            ok = bool(url_pdf) and enviar_documento(to, url_pdf, pdf_entrega)
+            if not ok and link_carpeta:
+                enviar_mensaje_texto(to, f"📄 Tu PDF con todo el material:\n{link_carpeta}")
+            elif not ok:
+                enviar_mensaje_texto(to, "📄 No pude adjuntarte el PDF automáticamente. Escribime y te lo mando enseguida. 🙌")
+        return
+
     if link_carpeta:
-        if cantidad == 0:
+        if producto.get("descripcion_entrega"):
+            descripcion_entrega = producto["descripcion_entrega"]
+        elif cantidad == 0:
             descripcion_entrega = "tu carpeta con todo el contenido, lista para descargar"
         elif cantidad == 1:
             descripcion_entrega = "tu archivo, listo para descargar"
