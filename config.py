@@ -161,6 +161,10 @@ FRASES_ASESOR = [
 # 5) PRODUCTOS (packs) — agregá acá nuevos bloques y aparecen solos en
 #    el menú del bot.
 # ---------------------------------------------------------------------
+# Link de la publicación/anuncio del kit de invitaciones, donde el cliente deja su comentario.
+# PENDIENTE: pegar acá el link (entre las comillas).
+LINK_ANUNCIO_INVITACIONES = ""
+
 PRODUCTOS = {
     "kit_maestro": {
         "titulo": "Kit Maestro de Arquitectura y Construcción",
@@ -380,6 +384,161 @@ PRODUCTOS = {
         ),
         "manuales": [],  # este producto no usa lista de libros
     },
+    "influir_masas": {
+        "titulo": "Influir en las masas (eBook)",
+        "titulo_boton": "Influir en las masas",  # máx. 20 caracteres
+        "descripcion_corta": "eBook de psicología · 113 páginas",
+        "precio": "$2.500",
+        "precio_oferta": "$2.500",
+        "precio_valor": 2500,
+        "imagen": "",  # PENDIENTE: pegar el "Direct link" de imgbb (i.ibb.co/...) de la portada
+        "imagen_oferta": "",
+        "emoji_ficha": "🐺",
+        # Si no compra en 15 min: precio especial SOLO HASTA LAS 23:59 DE HOY (una sola vez por cliente).
+        "promo_hoy": {"segundos": 900, "precio": "$1.500", "precio_valor": 1500},
+        "sin_recordatorio_corto": True,
+        "descripcion_entrega": "tu libro *Influir en las masas*, listo para leer y descargar",
+        "saludo": (
+            "¡Hola{nombre}! 👋 Qué bueno que me escribiste. Te cuento sobre *Influir en las masas* 🐺\n\n"
+            "Es un libro que explica cómo un puñado de personas aprendió a mover la opinión de millones, "
+            "y cómo reconocerlo para que no te lo hagan a vos. 🧠 Mirá de qué trata 👇"
+        ),
+        # Link de Drive con el PDF. Se manda al confirmar el pago.
+        "link_carpeta_final": "https://drive.google.com/file/d/1B9KlUu6JAVj_WAz_4S-R8TKU9H5jQGoj/view?usp=sharing",
+        "que_incluye": [
+            "eBook completo en PDF, 113 páginas",
+            "Cómo nació la propaganda moderna: Le Bon, Bernays y Lippmann",
+            "Las 10 reglas de oro y los 5 filtros de la manipulación",
+            "Marketing, redes y algoritmos como propaganda actual",
+            "Las señales del manipulador y cómo defenderte",
+            "Glosario de términos y cronología esencial",
+            "Entrega inmediata por Google Drive",
+            "Pago único, sin suscripciones",
+        ],
+        "texto_incluye": (
+            "🐺 *Esto es lo que vas a aprender*\n"
+            "Un libro de *113 páginas*, en 12 capítulos 👇\n\n"
+            "📜 *La historia*\n"
+            "Gustave Le Bon y la psicología de las multitudes · Edward Bernays, el sobrino de Freud que inventó las \"relaciones públicas\" · Walter Lippmann y el pseudoambiente\n\n"
+            "🧠 *Las técnicas*\n"
+            "Los lobos que llevamos dentro · Las diez reglas de oro · Los cinco filtros\n\n"
+            "📱 *Hoy*\n"
+            "El marketing como propaganda con traje y corbata · El algoritmo como el nuevo Bernays\n\n"
+            "🛡️ *Cómo defenderte*\n"
+            "Las señales del manipulador · La higiene mental del ciudadano · Sobrevivir al siglo XXI despierto\n\n"
+            "📚 *Extras:* glosario de términos clave y cronología esencial\n\n"
+            "⚡ Entrega inmediata por Google Drive\n"
+            "📱 Se lee en celular, tablet y computadora\n"
+            "✅ Pago único, sin suscripciones"
+        ),
+        "mensaje_precio": (
+            "💰 *Todo por $2.500* (pago único: lo pagás una sola vez y es tuyo)\n\n"
+            "¿Te sirve? Escribime *ALIAS* y te paso los datos para transferir. ¡Es rápido! 👇"
+        ),
+        "manuales": [],
+    },
+    "kit_invitaciones": {
+        "titulo": "Kit Premium de Invitaciones Digitales",
+        "titulo_boton": "Kit Invitaciones",  # máx. 20 caracteres
+        "titulo_boton_compra": "✅ QUIERO",  # texto del botón de compra (máx. 20)
+        "descripcion_corta": "+120 plantillas en Canva · 4 bonos",
+        "precio": "$5.500",
+        "precio_oferta": "$5.500",
+        "precio_valor": 5500,
+        "imagen": "https://i.ibb.co/hFxjKLPD/image.png",
+        "imagen_oferta": "https://i.ibb.co/hFxjKLPD/image.png",
+        "emoji_ficha": "💌",
+        # Si no compra en 15 min: precio especial SOLO HASTA LAS 23:59 DE HOY (una sola vez por cliente).
+        "promo_hoy": {"segundos": 900, "precio": "$3.900", "precio_valor": 3900},
+        "sin_recordatorio_corto": True,
+        # PDF que se manda como archivo adjunto al pagar. Está en la carpeta archivos/ del repo.
+        "pdf_entrega": "Kit_Invitaciones_Digitales.pdf",
+        # Pedido de comentario (reemplaza al genérico). Llega 5 minutos después de la entrega.
+        # Si el cliente manda una imagen después, el bot la toma como la CAPTURA del comentario (no como pago).
+        "segundos_comentario": 300,
+        "mensaje_comentario": (
+            "CON GUSTO! 😊\n"
+            "Si eres tan amable de dejarnos tu comentario en nuestro anuncio sobre el kit de invitaciones "
+            "te lo agradecería mucho!\n\n"
+            "Puedes hacerlo aquí:\n"
+            "👇👇👇\n"
+            + (LINK_ANUNCIO_INVITACIONES + "\n" if LINK_ANUNCIO_INVITACIONES else "")
+            + "👆👆👆\n\n"
+            "Por tu ayuda te iremos regalando un Bono sorpresa por adelantado, "
+            "por favor aguardo tu comentario en el anuncio 😁\n\n"
+            "🎁 *Tu bono sorpresa por adelantado:* una plantilla de invitación de boda para editar en Canva 👇\n"
+            "https://www.canva.com/design/DAG6cgJGF9c/p03QS0g32taRaSLluc3sBA/view?utm_content=DAG6cgJGF9c&utm_campaign=designshare&utm_medium=link&utm_source=publishsharelink&mode=preview\n\n"
+            "✅ Me envías una captura de tu comentario por favor\n"
+            "☑️ Muchas gracias de antemano por tu comentario 👍\n\n"
+            "Bendiciones 🙏"
+        ),
+        # Mensaje que recibe al pagar (cuando vos aprobás). Después del mensaje se manda el PDF.
+        "mensaje_entrega": (
+            "🎉 *¡FELICITACIONES POR TU COMPRA!* 🎉\n\n"
+            "Gracias por confiar en nosotros. Ya tenés en tus manos todo lo que necesitás para "
+            "empezar tu negocio de invitaciones digitales. 💌✨\n\n"
+            "📄 Te mando abajo la *guía de acceso*, con todo el material ordenado en 3 módulos. "
+            "También la podés abrir desde Drive:\n{link}\n\n"
+            "🎓 *Módulo 1 – Tutoriales en video*\n"
+            "Aprendés paso a paso a editar, agregar cuenta regresiva y entregar en formato video o sitio web. "
+            "Empezá por el primero: *Presentación del contenido*.\n\n"
+            "🎨 *Módulo 2 – Biblioteca de plantillas*\n"
+            "Tus kits de *Bodas* y *XV Años*, listos para editar en Canva.\n\n"
+            "💰 *Módulo 3 – Cómo vender tus invitaciones*\n"
+            "Más tus *4 bonos*: ganar dinero con invitaciones, cerrar ventas por WhatsApp, "
+            "conseguir tus primeros clientes y portadas para redes.\n\n"
+            "🎁 *Regalo extra:* curso de Canva para que domines la edición desde cero:\n"
+            "https://drive.google.com/drive/folders/1TgPLl9iSsrZWTZ7KsNJyUHA2yzsATjYd?usp=sharing\n\n"
+            "Cualquier duda, escribime por acá. 🙌"
+        ),
+        "saludo": (
+            "¡Hola{nombre}! 👋 Qué bueno que me escribiste.\n\n"
+            "Emprendé desde casa creando invitaciones bonitas, modernas y listas para vender 💵✨\n\n"
+            "Con el *Kit Premium* vas a poder crear:\n"
+            "✨ Invitaciones digitales para bodas y 15 años\n"
+            "🎥 Invitaciones en video\n"
+            "🌐 Invitaciones tipo web interactivas\n"
+            "📍 Con ubicación\n"
+            "✅ Confirmación de asistencia\n"
+            "⏳ Contador regresivo\n"
+            "💌 Save the Date\n"
+            "🎵 Podés agregar música, fotos y diseño personalizado según el evento.\n\n"
+            "Con las plantillas no tenés que diseñar desde cero: es solamente editar. 🙌"
+        ),
+        # Link de Drive del mismo PDF: respaldo por si falla el envío del archivo adjunto.
+        "link_carpeta_final": "https://drive.google.com/file/d/1O1Kel_7Akn1_HTnRXgn_TOJR9YZjJRRl/view?usp=sharing",
+        "que_incluye": [
+            "Más de 120 plantillas editables en Canva",
+            "Videoaulas cortas paso a paso",
+            "Invitaciones en formato video y tipo web",
+            "Save the Date",
+            "Botones de ubicación y confirmación",
+            "4 bonos de regalo",
+        ],
+        "texto_incluye": (
+            "💌 *¿Qué recibís dentro del kit?*\n\n"
+            "✅ Más de *120 plantillas editables en Canva*, listas para usar\n"
+            "✅ Videoaulas cortas, paso a paso\n"
+            "✅ Invitaciones en formato video\n"
+            "✅ Invitaciones tipo web\n"
+            "✅ Save the Date\n"
+            "✅ Botones de ubicación y confirmación\n\n"
+            "📂 Todo está en Drive, ordenado para que avances sin complicarte.\n\n"
+            "🎁 *Y además, 4 BONOS DE REGALO:*\n"
+            "🎁 Bono 1: Guía para ganar dinero vendiendo invitaciones\n"
+            "🎁 Bono 2: Guía para cerrar ventas por WhatsApp\n"
+            "🎁 Bono 3: Guía para conseguir tus primeros clientes\n"
+            "🎁 Bono 4: Portadas editables para redes sociales\n\n"
+            "Con estos bonos tenés todo para arrancar tu negocio. 🚀"
+        ),
+        "mensaje_precio": (
+            "🇦🇷 *Precio OFERTA: $5.500*\n\n"
+            "✅ Pago único y de por vida\n"
+            "📚 Los archivos son digitales, te los envío por acá mismo.\n\n"
+            "📲 Tocá *QUIERO* (o escribilo) y te paso el ALIAS 👇"
+        ),
+        "manuales": [],
+    },
 }
 
 
@@ -454,5 +613,22 @@ PALABRAS_POR_PRODUCTO = {
         "krav maga",
         "muay thai",
         "defensa personal",
+    ],
+    "influir_masas": [
+        "influir en las masas",
+        "influir masas",
+        "klaus brenner",
+        "propaganda",
+        "manipulacion",
+        "psicologia de masas",
+    ],
+    "kit_invitaciones": [
+        "invitaciones",
+        "invitaciones digitales",
+        "kit premium",
+        "kit de invitaciones",
+        "plantillas canva",
+        "invitaciones para bodas",
+        "invitaciones 15 anos",
     ],
 }
