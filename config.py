@@ -50,7 +50,7 @@ TEXTO_BOTON_LISTA = "📋 Ver productos"   # máx. 20 caracteres
 # comprobante si ya pagó y no obtuvo respuesta a tiempo. También se puede
 # configurar por variable de entorno NUMERO_RESPALDO en Render (si está
 # seteada ahí, tiene prioridad sobre este valor).
-NUMERO_RESPALDO_DEFAULT = "+54 9 11 5143-9788"
+NUMERO_RESPALDO_DEFAULT = ""
 
 # Números a los que NO se les manda el seguimiento automático (avisos de 5 min y
 # 1 hora). Es por prefijo de teléfono (código de país + área). Si escriben, el
@@ -85,10 +85,10 @@ DATOS_TRANSFERENCIA = {
 # ---------------------------------------------------------------------
 PROMPT_SISTEMA_IA = (
     "Sos un asistente de ventas por WhatsApp para Droply IA, un negocio que vende "
-    "productos digitales. Hoy vende: el Kit Maestro de Arquitectura y "
+    "productos digitales. Entre sus productos están el PACK GAMER de 78 videojuegos para PC ($14.900), el Kit Maestro de Arquitectura y "
     "Construcción (16 manuales técnicos en PDF, $5.500), la Colección de Libros de Artes Marciales (25 carpetas de disciplinas, más de 1 GB de material digital, $6.500), el Pack Retro Games (juegos clásicos para el celular, $3.000). "
     "Respondé breve, claro y amable en español. Si el cliente pregunta por algo que no "
-    "sea uno de esos tres productos, decile que por ahora solo están esos tres. "
+    "sea un producto del catálogo, invitá a consultar el menú escribiendo DROPLY. "
     "Orientalo a escribir el nombre del producto (*kit maestro*, *retro games* o *canción*) para que el sistema le muestre la ficha completa."
 )
 
@@ -166,6 +166,104 @@ FRASES_ASESOR = [
 LINK_ANUNCIO_INVITACIONES = ""
 
 PRODUCTOS = {
+    "pack_gamer_pc": {
+        "titulo": "PACK GAMER — 78 VIDEOJUEGOS CLÁSICOS PARA PC",
+        "titulo_boton": "🎮 Pack Gamer PC",
+        "titulo_boton_compra": "🛒 Comprar ahora",
+        "precio": "$14.900",
+        "precio_valor": 14900,
+        "imagen": "https://i.ibb.co/KcY1C1Dc/image.png",
+        "manuales": [],
+        "que_incluye": ["78 videojuegos y ediciones para PC", "Entrega digital por TeraBox tras aprobar el pago"],
+        "texto_entrega": "el enlace digital del PACK GAMER",
+        "descripcion_entrega": "el PACK GAMER — 78 videojuegos para PC",
+        "link_carpeta_final": "https://www.1024tera.com/spanish/sharing/link?surl=VHEDjhXw_J7mb5qF02usvA",
+        "mensaje_entrega": "🎉 *¡PAGO CONFIRMADO!*\n\n🎮 ¡Gracias por comprar el *PACK GAMER*!\n\n📦 Tu colección de 78 videojuegos y ediciones para PC está lista.\n\n🔗 *ENLACE DE ENTREGA:*\n{link}\n\n💻 Accedé al enlace para consultar y descargar los archivos.\n\n🙌 ¡Gracias por confiar en Droply IA!",
+        "saludo": "¡Hola! 👋🎮 ¡Gracias por tu interés en nuestro *PACK GAMER — 78 VIDEOJUEGOS CLÁSICOS PARA PC*!\n\n🕹️ Reviví los grandes clásicos que marcaron generaciones. Acción, aventura, estrategia, carreras, terror y mucho más.\n\n👇 ¡Mirá algunos de los juegos que incluye!",
+        "texto_incluye": "🎮 *ALGUNOS DE LOS JUEGOS DEL PACK*\n\n🏙️ GTA San Andreas\n🔫 Counter-Strike 1.6\n⚔️ Age of Empires I, II y III\n🧟 Resident Evil\n🏎️ Need for Speed Underground 2\n💥 Call of Duty\n🕹️ Half-Life y Half-Life 2\n🏡 The Sims\n🌻 Plants vs. Zombies\n\n🔥 ¡Y muchos títulos más!\n\n💻 *Para PC*\n📚 *78 videojuegos y ediciones en el catálogo.*",
+        "mensaje_precio": "🎮 *¡VOLVÉ A VIVIR LOS GRANDES CLÁSICOS!*\n\n🕹️ GTA San Andreas, Counter-Strike, Age of Empires, Need for Speed y muchos más te están esperando. 🔥\n\n💻 *PACK GAMER PARA PC*\n🎮 78 videojuegos y ediciones en el catálogo.\n\n💰 *PRECIO FINAL: $14.900 ARS*\n\n✅ Un solo pago, sin suscripciones.\n📂 Entrega digital por TeraBox después de confirmar el pago.\n\n🚀 *¡Tu próxima aventura gamer empieza acá!*\n\n👇 Tocá el botón *COMPRAR AHORA*.\n\n✍️ O si preferís, escribí *ALIAS* y te paso los datos para que puedas realizar el pago. 🙌",
+        "catalogo_juegos": [
+            'Age of Empires Gold',
+            'Age of Empires II',
+            'Age of Empires III',
+            'Alice: Madness Returns',
+            'Aliens versus Predator Classic',
+            'Batman: Vengeance',
+            'Battlefield 1942',
+            'Battlefield: Bad Company',
+            'Call of Duty 2',
+            'Call of Duty: World at War',
+            'Castle Crashers',
+            'Castlevania Advance Collection',
+            'Cold Fear',
+            'Contra Anniversary Collection',
+            'Counter-Strike 1.6',
+            'Cuphead',
+            'Day of Defeat: Source',
+            'DELTARUNE',
+            'DOOM + DOOM II Enhanced',
+            'DOOM 64',
+            "Don't Starve",
+            "Don't Starve Together",
+            'F.E.A.R. Platinum',
+            'F.E.A.R. 2: Project Origin',
+            'Fallout 3: Game of the Year Edition',
+            'Grand Theft Auto: San Andreas',
+            'Grand Theft Auto (versión por identificar)',
+            'Half-Life',
+            'Half-Life 2: The Orange Box',
+            'Halo: Combat Evolved',
+            'Hitman: Codename 47',
+            'Hitman 2: Silent Assassin',
+            'Just Cause',
+            'Just Cause 2',
+            'Land of the Dead',
+            'Mafia: The City of Lost Heaven',
+            'Mafia II',
+            'Max Payne',
+            'Medal of Honor: Allied Assault',
+            'Metal Slug PC',
+            'Mortal Kombat',
+            'Need for Speed: Underground 2',
+            'Noita',
+            'Penumbra Collection',
+            'Plants vs. Zombies GOTY',
+            'Plague Inc: Evolved',
+            'Portal',
+            'Portal 2',
+            'Postal 2',
+            'Pro Evolution Soccer 6 (PES 6)',
+            'Pro Evolution Soccer 2013 (PES 2013)',
+            'Quake III: Gold Edition',
+            'Quake 4',
+            'Rayman Origins',
+            'Resident Evil 2 HD',
+            'Resident Evil 3 HD',
+            'Resident Evil 4',
+            'Resident Evil HD Remaster',
+            'RimWorld',
+            "Saint Seiya: Soldiers' Soul",
+            'Scooby-Doo! First Frights',
+            'SimCity 4 Deluxe Edition',
+            'Splinter Cell: Chaos Theory',
+            'StarCraft Remastered',
+            'Star Wars Jedi Knight II: Jedi Outcast',
+            'Terraria',
+            'The Binding of Isaac: Rebirth',
+            'The Golden Compass',
+            'The Lord of the Rings: The Return of the King',
+            'The Sims 1 Legacy Collection',
+            'The Sims 2 Legacy Collection',
+            'Tomb Raider 1 + 2 + 3',
+            'Ultimate Spider-Man',
+            'Unreal Tournament 1999',
+            'Unreal Tournament 2004',
+            'Warcraft III: Reign of Chaos',
+            'Warcraft III: The Frozen Throne',
+            'Yu-Gi-Oh! Power of Chaos',
+        ],
+        "requisitos_pc": "💻 *REQUISITOS MÍNIMOS — PACK GAMER*\n\n🎮 *Configuración orientativa para juegos clásicos:*\n\n🖥️ Sistema operativo: Windows 10 u 11.\n⚙️ Procesador: Intel Core i3 o equivalente.\n🧠 Memoria RAM: 4 GB como referencia inicial.\n🎨 Gráficos: compatibles con los requisitos de cada juego.\n💾 Almacenamiento: espacio disponible según el videojuego.\n\n🎓 *¿TENÉS UNA NETBOOK DEL GOBIERNO?*\n\n🎮 ¡También podés disfrutar de muchos de los clásicos del PACK GAMER!\n\n✅ Una gran cantidad de juegos clásicos pueden funcionar sin problemas en determinadas netbooks del Gobierno.\n\n💻 La compatibilidad depende del modelo de tu computadora y de los requisitos de cada videojuego.\n\n🔥 ¡Reviví tus juegos favoritos y disfrutá horas de diversión!\n\n⚠️ Estos requisitos son orientativos y no garantizan compatibilidad con los 78 juegos.",
+    },
     "kit_maestro": {
         "titulo": "Kit Maestro de Arquitectura y Construcción",
         "titulo_boton": "Kit Maestro",  # texto del botón en el menú (máx. 20 caracteres)
@@ -584,6 +682,7 @@ PROMOS = {
 #       también su lista de palabras clave.
 # ---------------------------------------------------------------------
 PALABRAS_POR_PRODUCTO = {
+    "pack_gamer_pc": ["pack gamer", "pack gamer pc", "78 juegos", "juegos para pc", "videojuegos clasicos"],
     "kit_maestro": [
         "arquitectura",
         "construccion",
