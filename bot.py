@@ -526,7 +526,14 @@ def programar_recordatorio_compra(numero, clave):
 
         # A la hora, sin haber tocado nada, le mandamos la secuencia completa
         # con la oferta especial (imagen + $5.500 + libros + datos de pago).
-        _enviar_flujo_compra(numero, clave)
+        if clave == "pack_gamer_pc":
+            enviar_mensaje_texto(numero,
+                "🎮 ¡Los 78 videojuegos clásicos para PC te esperan! 🔥\n\n"
+                "💰 *Precio final: $14.900 ARS*, sin descuentos.\n\n"
+                "✍️ Escribí *ALIAS* y te paso los datos para que puedas realizar el pago. 🙌")
+            _enviar_botones_gamer(numero, clave, "compra")
+        else:
+            _enviar_flujo_compra(numero, clave)
 
     # Si el producto tiene una promo de bonus ACTIVA (con link cargado), en
     # lugar del recordatorio corto de 3 minutos mandamos la promo a los 5
@@ -985,6 +992,11 @@ def enviar_notificacion_telegram_comprobante(numero, comprobante_id, clave=None)
                 "text": f"✅ Aprobar y enviar: {(PRODUCTOS[clave].get('titulo_boton') or PRODUCTOS[clave]['titulo'])[:30]}",
                 "callback_data": f"aprobar:{comprobante_id}:{clave}:{numero}",
             }]]
+            if clave == "pack_gamer_pc":
+                botones_aprobar.append([{
+                    "text": "❌ Rechazar comprobante",
+                    "callback_data": f"rechazar:{comprobante_id}:{clave}:{numero}",
+                }])
         else:
             texto_formateado += "⚠️ No sé qué producto eligió. Elegí cuál aprobar según lo que pagó:"
             botones_aprobar = [
@@ -1364,9 +1376,48 @@ def telegram_webhook():
                 else:
                     aviso_popup = "No se pudo enviar"
 
+            elif accion_cb == "rechazar" and len(partes) == 4 and partes[2] == "pack_gamer_pc":
+                _, comprobante_id, clave, numero = partes
+                conn = sqlite3.connect(DB_PATH)
+                try:
+                    cursor = conn.execute(
+                        "UPDATE comprobantes SET estado = 'rechazado' WHERE id = ? AND numero = ? AND estado = 'pendiente'",
+                        (comprobante_id, numero))
+                    conn.commit()
+                    cambiado = cursor.rowcount > 0
+                finally:
+                    conn.close()
+                if cambiado:
+                    enviar_mensaje_texto(numero,
+                        "❌ No pudimos confirmar tu pago del *PACK GAMER*. "
+                        "Por favor revisá los datos de la transferencia y reenviá el comprobante por este chat. 🙌")
+                    _editar_teclado_telegram(chat_id_cb, message_id_cb, {
+                        "inline_keyboard": [[{"text": "❌ Comprobante rechazado", "callback_data": f"back:{numero}"}]]})
+                    aviso_popup = "Comprobante rechazado"
+                else:
+                    aviso_popup = "Este comprobante ya fue procesado"
+
             elif accion_cb == "aprobar" and len(partes) == 4:
                 _, comprobante_id, clave, numero = partes
-                marcar_comprobante_aprobado(comprobante_id)
+                if clave == "pack_gamer_pc":
+                    conn = sqlite3.connect(DB_PATH)
+                    try:
+                        cursor = conn.execute(
+                            "UPDATE comprobantes SET estado = 'aprobado' WHERE id = ? AND numero = ? AND estado = 'pendiente'",
+                            (comprobante_id, numero))
+                        conn.commit()
+                        cambiado = cursor.rowcount > 0
+                    finally:
+                        conn.close()
+                    if not cambiado:
+                        aviso_popup = "Este comprobante ya fue procesado"
+                        # No entregar nuevamente un pago ya aprobado o rechazado.
+                        if TELEGRAM_BOT_TOKEN and callback_id:
+                            requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery",
+                                json={"callback_query_id": callback_id, "text": aviso_popup}, timeout=10)
+                        return jsonify({"status": "already_processed"}), 200
+                else:
+                    marcar_comprobante_aprobado(comprobante_id)
                 desactivar_modo_ia(numero)
                 cancelar_recordatorio(numero)
                 enviar_manuales_completos(numero, clave)
@@ -1552,14 +1603,8 @@ def manejar_entrada_desde_ads(from_number, referral, msg_body_lower=""):
 
 
 def _con_nota_respaldo(texto_ia):
-    """Agrega, al final de una respuesta de la IA, el aviso del número de
-    respaldo por si el cliente ya pagó y no recibió respuesta a tiempo."""
-    nota = (
-        "\n\n📌 *Importante:* si ya realizaste la compra y todavía no obtuviste "
-        f"respuesta, por favor escribí directamente a este número con tu "
-        f"comprobante: *{NUMERO_RESPALDO}*"
-    )
-    return f"{texto_ia}{nota}"
+    """La atención se mantiene por el mismo chat, sin exponer teléfonos privados."""
+    return texto_ia
 
 
 def manejar_texto(from_number, msg_body_lower):
@@ -1740,6 +1785,20 @@ def manejar_boton(from_number, opcion_id):
     if accion == "ver_pack" and clave in PRODUCTOS:
         enviar_ficha_producto(from_number, clave)
 
+    elif accion == "gamer_lista" and clave == "pack_gamer_pc":
+        juegos = PRODUCTOS[clave]["catalogo_juegos"]
+        # Dividido en dos mensajes para no superar el límite de texto de WhatsApp.
+        for inicio in range(0, len(juegos), 39):
+            parte = juegos[inicio:inicio + 39]
+            titulo = "🎮 *PACK GAMER — CATÁLOGO COMPLETO*" if inicio == 0 else "🎮 *PACK GAMER — CONTINUACIÓN*"
+            enviar_mensaje_texto(from_number, titulo + "\n\n" + "\n".join(
+                f"{inicio + i + 1}. {nombre}" for i, nombre in enumerate(parte)))
+        _enviar_botones_gamer(from_number, clave, "compra")
+
+    elif accion == "gamer_requisitos" and clave == "pack_gamer_pc":
+        enviar_mensaje_texto(from_number, PRODUCTOS[clave]["requisitos_pc"])
+        _enviar_botones_gamer(from_number, clave, "compra")
+
     elif accion == "ver_resena" and clave in PRODUCTOS:
         enviar_mensaje_texto(from_number, _texto_detalle_manuales(clave))
         enviar_botones_pack(from_number, clave, incluir_ver=False)
@@ -1782,8 +1841,7 @@ def manejar_boton(from_number, opcion_id):
             "📩 Si pagás por transferencia, enviame el comprobante (foto o PDF) acá mismo "
             f"y te mando {texto_cantidad} al instante."
             f"{cierre_mp}\n\n"
-            f"📌 Si tenés cualquier inconveniente, escribime directo a mi número "
-            f"personal: *{NUMERO_RESPALDO}*",
+            "📌 Si tenés algún inconveniente, escribinos por este mismo chat.",
         )
         payload_ya_pague = {
             "messaging_product": "whatsapp",
@@ -1927,12 +1985,48 @@ def enviar_ficha_producto(to, clave):
     threading.Thread(target=_enviar_secuencia_ficha, args=(to, clave), daemon=True).start()
 
 
+def _enviar_botones_gamer(to, clave, tipo):
+    if tipo == "informacion":
+        botones = [
+            {"type": "reply", "reply": {"id": f"gamer_lista:{clave}", "title": "🎮 Ver los 78 juegos"}},
+            {"type": "reply", "reply": {"id": f"gamer_requisitos:{clave}", "title": "💻 Requisitos para PC"}},
+        ]
+        texto = "👇 Elegí qué información querés consultar:"
+    else:
+        botones = [{"type": "reply", "reply": {"id": f"comprar_pack:{clave}", "title": "🛒 Comprar ahora"}}]
+        texto = "👇 Tocá el botón para recibir los datos de pago:"
+    payload = {"messaging_product": "whatsapp", "to": to, "type": "interactive", "interactive": {
+        "type": "button", "body": {"text": texto}, "action": {"buttons": botones}}}
+    _enviar_interactivo(to, payload, texto)
+
+
+def _secuencia_pack_gamer(to, clave):
+    producto = PRODUCTOS[clave]
+    if producto.get("imagen"):
+        enviar_imagen(to, producto["imagen"])
+        time.sleep(2)
+    enviar_mensaje_texto(to, producto["saludo"])
+    time.sleep(2)
+    enviar_mensaje_texto(to, producto["texto_incluye"])
+    time.sleep(1)
+    _enviar_botones_gamer(to, clave, "informacion")
+    time.sleep(3)
+    enviar_mensaje_texto(to, producto["mensaje_precio"])
+    time.sleep(1)
+    _enviar_botones_gamer(to, clave, "compra")
+    programar_recordatorio_compra(to, clave)
+
+
 def _enviar_secuencia_ficha(to, clave):
     producto = PRODUCTOS.get(clave)
     if not producto:
         return
 
     PRODUCTO_ACTUAL[to] = clave  # recordamos qué producto le mostramos a este número
+
+    if clave == "pack_gamer_pc":
+        _secuencia_pack_gamer(to, clave)
+        return
 
     # Productos en modo "oferta de libros" (ej: Kit Maestro): secuencia propia.
     if producto.get("modo_oferta_libros"):
