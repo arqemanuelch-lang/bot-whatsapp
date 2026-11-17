@@ -529,7 +529,7 @@ def programar_recordatorio_compra(numero, clave):
         if clave == "pack_gamer_pc":
             enviar_mensaje_texto(numero,
                 "🎮 ¡Los 78 videojuegos clásicos para PC te esperan! 🔥\n\n"
-                "💰 *Precio final: $14.900 ARS*, sin descuentos.\n\n"
+                f"💰 *Precio de oferta: {_producto_para(numero, clave)['precio']} ARS*\n\n"
                 "✍️ Escribí *ALIAS* y te paso los datos para que puedas realizar el pago. 🙌")
             _enviar_botones_gamer(numero, clave, "compra")
         else:
@@ -1952,7 +1952,7 @@ def enviar_menu_productos(to):
         {
             "id": f"ver_pack:{clave}",
             "title": (producto.get("titulo_boton") or producto["titulo"])[:24],
-            "description": f"{producto['descripcion_corta']} · {producto['precio']}"[:72],
+            "description": f"{producto.get('descripcion_corta', '')} · {producto['precio']}".lstrip(" ·")[:72],
         }
         for clave, producto in PRODUCTOS.items()
     ]
