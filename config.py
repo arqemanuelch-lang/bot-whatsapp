@@ -1,3286 +1,846 @@
-import os
-import json
-import hmac
-import hashlib
-import re
-import sqlite3
-import threading
-import time
-import unicodedata
-import requests
-from datetime import datetime, timedelta, timezone
-from flask import Flask, request, jsonify, render_template_string, redirect, session, send_from_directory
+# =====================================================================
+#  CONFIG.PY — Todo lo que cambia de un negocio a otro va ACÁ.
+#  ---------------------------------------------------------------
+#  El archivo app.py es el "motor" del bot: recibe mensajes, manda
+#  botones, guarda en la base, atiende el panel, maneja recordatorios,
+#  IA de respaldo, etc. Eso NO se toca de un cliente a otro.
+#
+#  Este archivo, en cambio, es la "ficha" del negocio puntual: qué
+#  vende, cómo se llama, cómo cobra, qué dice al saludar, etc.
+#
+#  Para armar un bot nuevo para otro negocio: copiás toda la carpeta,
+#  reescribís SOLO este archivo de punta a punta, y listo.
+# =====================================================================
 
-# =====================================================================
-#  Toda la configuración específica de ESTE negocio (productos, precios,
-#  datos bancarios, mensajes de bienvenida, palabras clave, etc.) vive
-#  en config.py. Este archivo (app.py) es el "motor" genérico del bot:
-#  no debería hacer falta tocarlo para lanzar el bot de otro negocio,
-#  solo hay que reescribir config.py.
-# =====================================================================
-from config import (
-    NOMBRE_NEGOCIO,
-    PALABRA_CLAVE_MENU,
-    MENSAJE_BIENVENIDA_MENU,
-    MENSAJE_BIENVENIDA_SIMPLE,
-    TEXTO_BOTON_LISTA,
-    NUMERO_RESPALDO_DEFAULT,
-    DATOS_TRANSFERENCIA,
-    PROMPT_SISTEMA_IA,
-    PALABRAS_ACTIVADORAS,
-    PRODUCTOS,
-    PROMOS,
-    PALABRAS_POR_PRODUCTO,
-    FRASES_VER_QUE_INCLUYE,
-    FRASES_COMPRAR,
-    FRASES_ASESOR,
+
+import os
+
+# ---------------------------------------------------------------------
+# 1) DATOS GENERALES DEL NEGOCIO
+# ---------------------------------------------------------------------
+NOMBRE_NEGOCIO = "Droply IA"
+
+# URL pública de tu propio servidor (Render), para poder alojar archivos
+# propios en vez de depender de Google Drive. Si no configurás la
+# variable de entorno BASE_URL en Render, usa este valor por defecto.
+BASE_URL_ARCHIVOS = os.getenv("BASE_URL", "https://bot-whatsapp-ojza.onrender.com")
+
+# Palabra "comodín" que la gente puede escribir para ver el menú de
+# productos si el bot no entendió su mensaje (se muestra en el aviso de
+# "no entendí tu mensaje").
+PALABRA_CLAVE_MENU = "DROPLY"
+
+# Mensaje de bienvenida que se manda junto con la lista de productos,
+# la primera vez que alguien saluda ("hola", "buenas", etc.)
+MENSAJE_BIENVENIDA_MENU = (
+    "¡Hola! 👋 Bienvenido a Droply IA. Elegí el producto que te interesa:"
 )
 
-import config as _config
-
-# Qué avisos te llegan por Telegram (se cambian en config.py):
-TELEGRAM_AVISAR_TODO = getattr(_config, "TELEGRAM_AVISAR_TODO", False)  # True = avisar cada mensaje (como antes)
-TELEGRAM_AVISAR_PIDE_ALIAS = getattr(_config, "TELEGRAM_AVISAR_PIDE_ALIAS", True)  # aviso cuando pide los datos de pago
-_AVISO_ALIAS_ULTIMO = {}  # (numero, clave) -> timestamp, para no repetir el aviso
-
-app = Flask(__name__)
-
-
-# ---------------------------------------------------------------------
-# PROMOS por tiempo limitado (se definen en config.py, en PROMOS).
-# Se recalculan en cada mensaje que llega: mientras la promo está vigente
-# (hora de Argentina) se usa su precio y su regalo; al pasar la fecha, el
-# producto vuelve solo a su precio normal.
-# ---------------------------------------------------------------------
-_CAMPOS_PROMO = ("precio", "precio_oferta", "precio_valor", "regalo_sorpresa", "mensaje_precio")
-_SIN_VALOR = object()
-_BASE_PROMO = {
-    clave: {campo: PRODUCTOS[clave].get(campo, _SIN_VALOR) for campo in _CAMPOS_PROMO}
-    for clave in PROMOS
-    if clave in PRODUCTOS
-}
-
-
-def aplicar_promos():
-    hoy = datetime.now(timezone(timedelta(hours=-3))).date().isoformat()
-    for clave, promo in PROMOS.items():
-        producto = PRODUCTOS.get(clave)
-        if not producto:
-            continue
-
-        if hoy <= promo["hasta"]:
-            producto["precio"] = promo["precio"]
-            producto["precio_oferta"] = promo["precio"]
-            producto["precio_valor"] = promo["precio_valor"]
-            producto["regalo_sorpresa"] = [promo["regalo"]]
-            normal = promo.get("precio_normal")
-            precio_linea = (
-                f"💰 *Precio de HOY:* {promo['precio']}  (precio normal ~{normal}~)"
-                if normal
-                else f"💰 *Precio de HOY:* {promo['precio']}"
-            )
-            producto["mensaje_precio"] = (
-                f"{precio_linea}\n"
-                f"🎁 Y de regalo: {promo['regalo']}\n"
-                f"{promo.get('aviso', '')}\n\n"
-                "Si querés aprovecharlo, escribí *ALIAS* y te paso todos los datos "
-                "para transferir. 👇"
-            )
-        else:
-            for campo, valor in _BASE_PROMO.get(clave, {}).items():
-                if valor is _SIN_VALOR:
-                    producto.pop(campo, None)
-                else:
-                    producto[campo] = valor
-
-# ---------- Variables de entorno (se configuran en Render) ----------
-WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
-PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
-VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "tu_token_de_verificacion")
-APP_SECRET = os.getenv("APP_SECRET")  # opcional: App Secret de Meta, para validar firma del webhook
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")  # opcional: respaldo gratuito si Gemini falla
-
-# --- Notificaciones y respuestas por Telegram (opcional) ---
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")  # el token que te da @BotFather
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")  # tu chat_id personal de Telegram
-TELEGRAM_WEBHOOK_URL = os.getenv("TELEGRAM_WEBHOOK_URL")  # ej: https://tu-app.onrender.com/telegram_webhook
-
-# --- Mercado Pago (pago automático, opcional) ---
-MP_ACCESS_TOKEN = os.getenv("MP_ACCESS_TOKEN")
-# BASE_URL: la URL pública de tu bot en Render, ej: https://bot-whatsapp-ojza.onrender.com (sin / al final)
-BASE_URL = os.getenv("BASE_URL")
-PANEL_PASSWORD = os.getenv("PANEL_PASSWORD", "cambiar_esta_clave")
-app.secret_key = os.getenv("FLASK_SECRET_KEY", "cambiar_esta_clave_tambien")
-
-# Dónde vive la base de datos. Por defecto se guarda en la carpeta de la
-# app (que en Render se borra en cada redeploy/reinicio, en el plan
-# gratuito). Si configurás la variable de entorno DB_PATH apuntando a un
-# disco persistente de Render (por ejemplo "/var/data/mensajes.db"), los
-# datos van a sobrevivir a los redeploys y reinicios.
-DB_PATH = os.getenv("DB_PATH", "mensajes.db")
-
-# Si la ruta incluye una carpeta que todavía no existe (por ejemplo la
-# primera vez que se monta el disco), la creamos para que sqlite no falle.
-if os.path.dirname(DB_PATH):
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-
-# ---------------------------------------------------------------------
-# Recordatorio automático de compra: si le mandamos la ficha de un producto
-# a alguien y no toca NINGÚN botón, le mandamos hasta DOS recordatorios:
-# uno a los 3 minutos, y otro (más urgente) a la hora si todavía no
-# interactuó. Ambos se cancelan apenas la persona toca cualquier botón,
-# manda un comprobante, o si un humano le responde/aprueba el pago desde
-# el panel.
-#
-# NOTA IMPORTANTE: esto usa threading.Timer en memoria. Funciona bien
-# mientras la app corra en UN SOLO proceso/worker (lo normal en Render para
-# un bot chico). Si en el futuro escalás a varios workers, esto habría que
-# migrarlo a algo persistente (una tabla en la base + un cron/scheduler).
-# =====================================================================
-SEGUNDOS_RECORDATORIO_CORTO = float(os.getenv("SEGUNDOS_RECORDATORIO_CORTO", "180"))  # 3 minutos
-SEGUNDOS_RECORDATORIO_LARGO = float(os.getenv("SEGUNDOS_RECORDATORIO_LARGO", "3600"))  # 1 hora
-RECORDATORIOS_PENDIENTES = {}  # numero -> threading.Timer (el de 3 minutos)
-RECORDATORIOS_PENDIENTES_LARGO = {}  # numero -> threading.Timer (el de 1 hora)
-RECORDATORIOS_PENDIENTES_MEDIO = {}  # numero -> threading.Timer (el de 10 minutos, solo con promo de bonus)
-ULTIMA_INTERACCION = {}  # numero -> timestamp (time.time()) de la última acción del usuario
-class _ProductoActual(dict):
-    """numero -> clave del último producto que el cliente vio o tocó. Se guarda
-    también en la base, así sobrevive a un reinicio del servidor (si el disco
-    persiste) y se comparte entre procesos."""
-
-    def _con(self):
-        conn = sqlite3.connect(DB_PATH)
-        conn.execute("CREATE TABLE IF NOT EXISTS producto_cliente (numero TEXT PRIMARY KEY, clave TEXT)")
-        return conn
-
-    def __setitem__(self, numero, clave):
-        super().__setitem__(numero, clave)
-        try:
-            conn = self._con()
-            conn.execute("INSERT OR REPLACE INTO producto_cliente (numero, clave) VALUES (?, ?)", (numero, clave))
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            print("No pude guardar el producto del cliente:", e)
-
-    def get(self, numero, default=None):
-        valor = super().get(numero)
-        if valor is not None and valor in PRODUCTOS:
-            return valor
-        try:
-            conn = self._con()
-            fila = conn.execute("SELECT clave FROM producto_cliente WHERE numero = ?", (numero,)).fetchone()
-            conn.close()
-            if fila and fila[0] and fila[0] in PRODUCTOS:
-                super().__setitem__(numero, fila[0])
-                return fila[0]
-        except Exception as e:
-            print("No pude leer el producto del cliente:", e)
-        return default
-
-
-PRODUCTO_ACTUAL = _ProductoActual()  # numero -> clave del último producto (para "alias", "que incluye", aprobar pago, etc.)
-
-
-def marcar_interaccion(numero):
-    """Registra que este número acaba de interactuar (mandó un mensaje o tocó
-    un botón). Se usa para evitar que un recordatorio se dispare justo en el
-    instante en que la persona ya está actuando (carrera de tiempos entre
-    'cancelar el aviso' y 'el aviso ya se estaba mandando')."""
-    ULTIMA_INTERACCION[numero] = time.time()
-
-
-def cancelar_recordatorio(numero):
-    """Cancela CUALQUIER recordatorio pendiente para este número (tanto el
-    de 3 minutos como el de 1 hora, si estuvieran programados)."""
-    timer_corto = RECORDATORIOS_PENDIENTES.pop(numero, None)
-    if timer_corto:
-        timer_corto.cancel()
-    timer_largo = RECORDATORIOS_PENDIENTES_LARGO.pop(numero, None)
-    if timer_largo:
-        timer_largo.cancel()
-    timer_medio = RECORDATORIOS_PENDIENTES_MEDIO.pop(numero, None)
-    if timer_medio:
-        timer_medio.cancel()
-
-
-def _armar_recordatorio(numero, clave, texto_mensaje):
-    """Función interna que arma el 'chequeo de seguridad' (para no mandar el
-    aviso si la persona interactuó hace muy poquito) y manda el mensaje +
-    los botones. La usan tanto el recordatorio corto como el largo."""
-    ultima = ULTIMA_INTERACCION.get(numero, 0)
-    if time.time() - ultima < 10:
-        return  # la persona ya está activa en la conversación, no la molestamos
-    producto = PRODUCTOS.get(clave)
-    if not producto:
-        return
-    enviar_mensaje_texto(numero, texto_mensaje)
-    enviar_botones_pack(numero, clave, texto="¿Cómo querés avanzar?", incluir_ver=True)
-
-
-# =====================================================================
-#  Promo de bonus (config.py -> "bonus_promo")
-# =====================================================================
-HORAS_VALIDEZ_BONUS = 24  # si pagó dentro de este plazo desde la oferta, se le manda el regalo
-
-
-def _bonus_activo(producto):
-    """Devuelve el dict 'bonus_promo' del producto SOLO si tiene el link del
-    regalo cargado. Si no, None (la promo no se manda)."""
-    if not producto:
-        return None
-    bonus = producto.get("bonus_promo")
-    if bonus and str(bonus.get("link", "")).strip():
-        return bonus
-    return None
-
-
-def registrar_oferta_bonus(numero, clave):
-    conn = sqlite3.connect(DB_PATH)
-    try:
-        conn.execute(
-            "INSERT OR REPLACE INTO ofertas_bonus (numero, clave, ts) VALUES (?, ?, ?)",
-            (numero, clave, time.time()),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def oferta_bonus_vigente(numero, clave):
-    conn = sqlite3.connect(DB_PATH)
-    try:
-        fila = conn.execute(
-            "SELECT ts FROM ofertas_bonus WHERE numero = ? AND clave = ?", (numero, clave)
-        ).fetchone()
-    finally:
-        conn.close()
-    return bool(fila) and (time.time() - fila[0]) <= HORAS_VALIDEZ_BONUS * 3600
-
-
-def _enviar_promo_bonus(numero, clave):
-    producto = PRODUCTOS.get(clave)
-    bonus = _bonus_activo(producto)
-    if not bonus:
-        return
-    registrar_oferta_bonus(numero, clave)
-    if str(bonus.get("imagen", "")).strip():
-        enviar_imagen(numero, bonus["imagen"])
-        time.sleep(2)
-    lineas = [
-        "🎁 *Promo especial para vos*",
-        "",
-        f"Si comprás el *{producto['titulo']}* hoy, te llevás de REGALO:",
-        f"📘 *{bonus['titulo']}*",
-    ]
-    if str(bonus.get("link_adelanto", "")).strip():
-        lineas.append(f"👀 Mirá un adelanto: {bonus['link_adelanto']}")
-    lineas += [
-        "",
-        f"💰 {producto['precio']} y el regalo es tuyo.",
-        "Escribí *ALIAS* para pagar y recibirlo junto con tu compra. 👇",
-    ]
-    enviar_mensaje_texto(numero, "\n".join(lineas))
-    enviar_botones_pack(numero, clave, texto="¿Cómo querés avanzar?", incluir_ver=True)
-
-
-def _entregar_bonus_si_corresponde(numero, clave):
-    producto = PRODUCTOS.get(clave)
-    bonus = _bonus_activo(producto)
-    if not bonus or not oferta_bonus_vigente(numero, clave):
-        return
-    texto_password = ""
-    if str(bonus.get("password", "")).strip():
-        texto_password = (
-            "🔐 *Contraseña para abrir el PDF:*\n"
-            f"`{bonus['password']}`\n"
-            "Descargalo y, cuando te la pida, escribila tal cual (respetando mayúsculas y guiones).\n\n"
-        )
-    enviar_mensaje_texto(
-        numero,
-        "🎁 *¡Y acá está tu regalo!*\n\n"
-        f"📘 *{bonus['titulo']}*\n"
-        f"{bonus['link']}\n\n"
-        f"{texto_password}"
-        "¡Gracias por tu compra! 🙌",
-    )
-
-
-def _enviar_recordatorio_bonus(numero, clave):
-    """Segundo aviso (a los 10 minutos): recuerda el regalo y ofrece pagar ya."""
-    producto = PRODUCTOS.get(clave)
-    bonus = _bonus_activo(producto)
-    if not bonus:
-        return
-    for _img in (bonus.get("imagen", ""), bonus.get("imagen_recordatorio", "")):
-        if str(_img).strip():
-            enviar_imagen(numero, _img)
-            time.sleep(2)
-    linea_adelanto = ""
-    if str(bonus.get("link_adelanto", "")).strip():
-        linea_adelanto = f"👀 Mirá un adelanto: {bonus['link_adelanto']}\n\n"
-    enviar_mensaje_texto(
-        numero,
-        "⏳ *¿Te quedó alguna duda?*\n\n"
-        f"Tu regalo 📘 *{bonus['titulo']}* te sigue esperando: lo recibís junto "
-        f"con el *{producto['titulo']}* si comprás hoy.\n\n"
-        f"{linea_adelanto}"
-        f"💰 {producto['precio']} · Acceso inmediato\n\n"
-        "Tocá *Comprar* y te paso los datos para pagar. 👇",
-    )
-    enviar_botones_pack(numero, clave, texto="¿Cómo querés avanzar?", incluir_ver=False)
-
-
-# ---------------------------------------------------------------------
-#  Promo "solo por hoy" (por cliente, una sola vez, hasta las 23:59 de Argentina)
-# ---------------------------------------------------------------------
-def _tabla_promos_hoy():
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS promos_hoy (numero TEXT, clave TEXT, precio TEXT, "
-        "precio_valor REAL, vence REAL, PRIMARY KEY (numero, clave))"
-    )
-    return conn
-
-
-def promo_hoy_ya_ofrecida(numero, clave):
-    try:
-        conn = _tabla_promos_hoy()
-        fila = conn.execute("SELECT 1 FROM promos_hoy WHERE numero = ? AND clave = ?", (numero, clave)).fetchone()
-        conn.close()
-        return bool(fila)
-    except Exception as e:
-        print("Error leyendo promo de hoy:", e)
-        return False
-
-
-def activar_promo_hoy(numero, clave, precio, precio_valor):
-    ahora = datetime.now(timezone(timedelta(hours=-3)))  # hora de Argentina
-    vence = ahora.replace(hour=23, minute=59, second=59, microsecond=0).timestamp()
-    conn = _tabla_promos_hoy()
-    conn.execute(
-        "INSERT OR REPLACE INTO promos_hoy (numero, clave, precio, precio_valor, vence) VALUES (?, ?, ?, ?, ?)",
-        (numero, clave, precio, float(precio_valor), vence),
-    )
-    conn.commit()
-    conn.close()
-
-
-def promo_hoy_vigente(numero, clave):
-    """Devuelve {'precio', 'precio_valor'} si este cliente tiene la promo de
-    hoy todavía vigente; si no, None."""
-    try:
-        conn = _tabla_promos_hoy()
-        fila = conn.execute(
-            "SELECT precio, precio_valor, vence FROM promos_hoy WHERE numero = ? AND clave = ?",
-            (numero, clave),
-        ).fetchone()
-        conn.close()
-    except Exception as e:
-        print("Error leyendo promo de hoy:", e)
-        return None
-    if fila and time.time() <= fila[2]:
-        return {"precio": fila[0], "precio_valor": fila[1]}
-    return None
-
-
-def _producto_para(numero, clave):
-    """El producto con el precio que le corresponde a ESTE cliente (la promo de
-    hoy, si la tiene vigente; si no, el precio normal)."""
-    base = PRODUCTOS.get(clave)
-    if not base:
-        return None
-    promo = promo_hoy_vigente(numero, clave)
-    if not promo:
-        return base
-    p = dict(base)
-    p["precio"] = promo["precio"]
-    p["precio_oferta"] = promo["precio"]
-    p["precio_valor"] = promo["precio_valor"]
-    return p
-
-
-def _enviar_promo_hoy(numero, clave):
-    producto = PRODUCTOS.get(clave)
-    promo = (producto or {}).get("promo_hoy")
-    if not producto or not promo:
-        return
-    if promo_hoy_ya_ofrecida(numero, clave):
-        return  # la promo de hoy se ofrece una sola vez por cliente
-    activar_promo_hoy(numero, clave, promo["precio"], promo["precio_valor"])
-    if str(promo.get("imagen", "")).strip():
-        enviar_imagen(numero, promo["imagen"])
-        time.sleep(2)
-    if promo.get("texto"):
-        # Texto propio del producto (config.py). Variables: {nombre} {precio} {normal}
-        enviar_mensaje_texto(
-            numero,
-            promo["texto"]
-            .replace("{nombre}", _nombre_saludo(numero))
-            .replace("{precio}", promo["precio"])
-            .replace("{normal}", producto["precio"]),
-        )
-        time.sleep(2)
-    else:
-        enviar_mensaje_texto(
-            numero,
-            f"¡Hola{_nombre_saludo(numero)}! 🔥 Tengo una sorpresa para vos\n\n"
-            "*PROMO SOLO POR HOY*\n"
-            f"La *{producto['titulo']}* que viste te sale *{promo['precio']}* "
-            f"en lugar de {producto['precio']}.\n\n"
-            f"⏰ Este precio vale *hasta las 23:59 de hoy*. Mañana vuelve a {producto['precio']}.\n\n"
-            "Mirá todo lo que recibís 👇",
-        )
-        time.sleep(2)
-        if producto.get("texto_incluye"):
-            enviar_mensaje_texto(numero, producto["texto_incluye"])
-            time.sleep(2)
-    enviar_mensaje_texto(numero, "✍️ ¿Te lo llevás? Escribime *ALIAS* y te paso los datos para transferir. ¡Es rápido! 👇")
-    if not promo.get("sin_botones"):
-        time.sleep(2)
-        enviar_botones_pack(numero, clave, texto="O si preferís, tocá el botón 👇", incluir_ver=False)
-
-
-def _enviar_recordatorio_extra(numero, clave):
-    """Mensaje adicional (ej: a los 20 min) que explica cómo es la compra, con
-    el texto de config.py -> producto['recordatorio_extra']['texto']."""
-    producto = PRODUCTOS.get(clave)
-    extra = (producto or {}).get("recordatorio_extra")
-    if not producto or not extra:
-        return
-    texto = extra["texto"].replace("{nombre}", _nombre_saludo(numero)).replace("{precio}", producto["precio"])
-    enviar_mensaje_texto(numero, texto)
-    if extra.get("texto_alias"):
-        time.sleep(2)
-        enviar_mensaje_texto(numero, extra["texto_alias"])
-
-
-def _enviar_recordatorio_fuerte(numero, clave):
-    """Mensaje de venta (a los 5 min si no compró): cálido y directo, con el
-    adelanto de cada libro por si tiene dudas, y botón de compra."""
-    producto = PRODUCTOS.get(clave)
-    if not producto:
-        return
-    manuales = producto.get("manuales", [])
-    cantidad = len(manuales)
-    lineas = [
-        f"¡Hola{_nombre_saludo(numero)}! 😊 ¿Pudiste ver el kit?\n",
-        f"Te cuento que por *{producto['precio']}* te llevás *{cantidad} libros* de arquitectura y construcción, "
-        "y los recibís al instante apenas pagás. Armar una biblioteca así en papel te costaría muchísimo más. 📚\n",
-        "🎁 Y además te regalo un plus único y sorpresa que te va a ayudar en el mundo de la construcción.\n",
-    ]
-    con_adelanto = [m for m in manuales if m.get("link")]
-    if con_adelanto:
-        lineas.append("🤔 *¿Te quedó alguna duda? Mirá un adelanto de cada libro, sin compromiso:*\n")
-        for m in con_adelanto:
-            lineas.append(f"👀 *{m['titulo']}*\n{m['link']}\n")
-    lineas.append(f"💰 *Todo por {producto['precio']}.* Es el precio de ahora y puede subir más adelante.")
-    lineas.append("\nSi te interesa, avisame y te paso los datos. ¡Estoy para ayudarte! 🙌")
-    enviar_mensaje_texto(numero, "\n".join(lineas))
-    time.sleep(2)
-    enviar_mensaje_texto(numero, "✍️ ¿Lo querés? Escribime *ALIAS* y te paso los datos para transferir. ¡Es rápido! 👇")
-    time.sleep(2)
-    enviar_botones_pack(numero, clave, texto="Si preferís, tocá el botón 👇", incluir_ver=False)
-
-
-def programar_recordatorio_compra(numero, clave):
-    """Programa los dos recordatorios (3 minutos y 1 hora) para este número.
-    Si ya había recordatorios pendientes, los reemplaza (reinicia el conteo)."""
-    cancelar_recordatorio(numero)
-
-    # Números excluidos del seguimiento (ej: CABA / Gran Buenos Aires).
-    try:
-        import config as _cfg
-        _num_limpio = "".join(ch for ch in str(numero) if ch.isdigit())
-        if any(_num_limpio.startswith(p) for p in getattr(_cfg, "PREFIJOS_SIN_SEGUIMIENTO", [])):
-            return
-    except Exception as e:
-        print("Error revisando prefijos sin seguimiento:", e)
-
-    def _recordatorio_corto():
-        RECORDATORIOS_PENDIENTES.pop(numero, None)
-        producto = PRODUCTOS.get(clave)
-        if not producto:
-            return
-        cantidad_m = len(producto.get("manuales", []))
-        if cantidad_m > 0:
-            completo_s = "completo" if cantidad_m == 1 else "completos"
-            listo_s = "listo" if cantidad_m == 1 else "listos"
-            texto_contenido = f"{_texto_cantidad_manuales(producto)} {completo_s}, {listo_s} para descargar. 📚"
-        else:
-            texto_contenido = "todo el contenido, listo para vos. 📚"
-        _armar_recordatorio(
-            numero, clave,
-            f"¡Hola{_nombre_saludo(numero)}! 😊 ¿Te quedó alguna duda sobre *{producto['titulo']}*?\n\n"
-            f"Te cuento que lo tenés por solo *{producto['precio']}*: "
-            f"{texto_contenido}\n\n"
-            "Si te interesa, tocá el botón de abajo y te paso los datos. ¡Estoy para ayudarte! 🙌",
-        )
-
-    def _recordatorio_largo():
-        RECORDATORIOS_PENDIENTES_LARGO.pop(numero, None)
-
-        # Mismo chequeo de seguridad que _armar_recordatorio: si la persona
-        # interactuó hace muy poquito, no la molestamos.
-        ultima = ULTIMA_INTERACCION.get(numero, 0)
-        if time.time() - ultima < 10:
-            return
-
-        producto = PRODUCTOS.get(clave)
-        if not producto:
-            return
-
-        # A la hora, sin haber tocado nada, le mandamos la secuencia completa
-        # con la oferta especial (imagen + $5.500 + libros + datos de pago).
-        if clave == "pack_gamer_pc":
-            enviar_mensaje_texto(numero,
-                "🎮 ¡Los 78 videojuegos clásicos para PC te esperan! 🔥\n\n"
-                f"💰 *Precio de oferta: {_producto_para(numero, clave)['precio']} ARS*\n\n"
-                "✍️ Escribí *ALIAS* y te paso los datos para que puedas realizar el pago. 🙌")
-            _enviar_botones_gamer(numero, clave, "compra")
-        else:
-            _enviar_flujo_compra(numero, clave)
-
-    # Si el producto tiene una promo de bonus ACTIVA (con link cargado), en
-    # lugar del recordatorio corto de 3 minutos mandamos la promo a los 5
-    # minutos (así no le llegan dos mensajes seguidos).
-    bonus = _bonus_activo(PRODUCTOS.get(clave))
-    if bonus:
-        def _promo_bonus():
-            RECORDATORIOS_PENDIENTES.pop(numero, None)
-            if time.time() - ULTIMA_INTERACCION.get(numero, 0) < 10:
-                return
-            _enviar_promo_bonus(numero, clave)
-
-        espera = float(os.getenv("SEGUNDOS_PROMO_BONUS", bonus.get("segundos", 300)))
-        timer_corto = threading.Timer(espera, _promo_bonus)
-
-        def _recordatorio_medio():
-            RECORDATORIOS_PENDIENTES_MEDIO.pop(numero, None)
-            if time.time() - ULTIMA_INTERACCION.get(numero, 0) < 10:
-                return
-            _enviar_recordatorio_bonus(numero, clave)
-
-        espera2 = float(os.getenv("SEGUNDOS_RECORDATORIO_BONUS", bonus.get("segundos_recordatorio", 600)))
-        timer_medio = threading.Timer(espera2, _recordatorio_medio)
-        timer_medio.daemon = True
-        RECORDATORIOS_PENDIENTES_MEDIO[numero] = timer_medio
-        timer_medio.start()
-    elif PRODUCTOS.get(clave, {}).get("recordatorio_fuerte"):
-        def _fuerte():
-            RECORDATORIOS_PENDIENTES.pop(numero, None)
-            if time.time() - ULTIMA_INTERACCION.get(numero, 0) < 10:
-                return
-            _enviar_recordatorio_fuerte(numero, clave)
-
-        espera_f = float(os.getenv(
-            "SEGUNDOS_RECORDATORIO_FUERTE",
-            PRODUCTOS[clave]["recordatorio_fuerte"].get("segundos", 300),
-        ))
-        timer_corto = threading.Timer(espera_f, _fuerte)
-    elif PRODUCTOS.get(clave, {}).get("sin_recordatorio_corto"):
-        timer_corto = None  # este producto no manda nada a los 3 minutos
-    else:
-        timer_corto = threading.Timer(SEGUNDOS_RECORDATORIO_CORTO, _recordatorio_corto)
-    if timer_corto is not None:
-        timer_corto.daemon = True
-        RECORDATORIOS_PENDIENTES[numero] = timer_corto
-        timer_corto.start()
-
-    timer_largo = threading.Timer(SEGUNDOS_RECORDATORIO_LARGO, _recordatorio_largo)
-    timer_largo.daemon = True
-    RECORDATORIOS_PENDIENTES_LARGO[numero] = timer_largo
-    timer_largo.start()
-
-    # Mensaje extra (ej: a los 20 min, "cómo es la compra"), si el producto lo tiene.
-    extra = PRODUCTOS.get(clave, {}).get("recordatorio_extra")
-    if extra and not PRODUCTOS.get(clave, {}).get("promo_hoy") and numero not in RECORDATORIOS_PENDIENTES_MEDIO:
-        def _extra():
-            RECORDATORIOS_PENDIENTES_MEDIO.pop(numero, None)
-            if time.time() - ULTIMA_INTERACCION.get(numero, 0) < 10:
-                return
-            _enviar_recordatorio_extra(numero, clave)
-
-        espera_e = float(os.getenv("SEGUNDOS_RECORDATORIO_EXTRA", extra.get("segundos", 1200)))
-        timer_extra = threading.Timer(espera_e, _extra)
-        timer_extra.daemon = True
-        RECORDATORIOS_PENDIENTES_MEDIO[numero] = timer_extra
-        timer_extra.start()
-
-    # Promo "solo por hoy" (si el producto la tiene): se manda a los N segundos
-    # (15 min) si todavía no compró.
-    promo_hoy = PRODUCTOS.get(clave, {}).get("promo_hoy")
-    if promo_hoy and numero not in RECORDATORIOS_PENDIENTES_MEDIO:
-        def _promo_hoy():
-            RECORDATORIOS_PENDIENTES_MEDIO.pop(numero, None)
-            if time.time() - ULTIMA_INTERACCION.get(numero, 0) < 10:
-                return
-            _enviar_promo_hoy(numero, clave)
-
-        espera_p = float(os.getenv("SEGUNDOS_PROMO_HOY", promo_hoy.get("segundos", 900)))
-        timer_promo = threading.Timer(espera_p, _promo_hoy)
-        timer_promo.daemon = True
-        RECORDATORIOS_PENDIENTES_MEDIO[numero] = timer_promo
-        timer_promo.start()
-
-# Gemini: usamos la "Interactions API", que es la que funciona con las claves
-# nuevas de Google AI Studio (las que empiezan con "AQ.").
-GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+# Bienvenida SIN productos: se manda cuando alguien saluda ("hola", etc.) sin
+# haber tocado un anuncio ni escrito el nombre de un producto. La lista de
+# productos aparece recién cuando toca el botón.
+MENSAJE_BIENVENIDA_SIMPLE = (
+    "¡Hola{nombre}! 👋 Qué bueno tenerte por acá. Soy el asistente de Droply IA "
+    "y estoy para ayudarte. 😊\n\n"
+    "Tocá el botón de abajo y mirá lo que tenemos para vos 👇"
+)
+TEXTO_BOTON_LISTA = "📋 Ver productos"   # máx. 20 caracteres
 
 # Número de respaldo al que el cliente puede escribir directamente con su
-# comprobante si ya pagó y no obtuvo respuesta a tiempo.
-NUMERO_RESPALDO = os.getenv("NUMERO_RESPALDO", NUMERO_RESPALDO_DEFAULT)
+# comprobante si ya pagó y no obtuvo respuesta a tiempo. También se puede
+# configurar por variable de entorno NUMERO_RESPALDO en Render (si está
+# seteada ahí, tiene prioridad sobre este valor).
+NUMERO_RESPALDO_DEFAULT = ""
 
+# Números a los que NO se les manda el seguimiento automático (avisos de 5 min y
+# 1 hora). Es por prefijo de teléfono (código de país + área). Si escriben, el
+# bot igual les responde y pueden comprar; solo se corta la insistencia.
+#   "54911" / "5411"  -> CABA y Gran Buenos Aires (área 11)
+# Si querés sumar ciudades de la provincia, agregá por ejemplo:
+#   "549221" (La Plata), "549223" (Mar del Plata), "549291" (Bahía Blanca)
+PREFIJOS_SIN_SEGUIMIENTO = ["54911", "5411"]
 
-def detectar_producto_por_texto(texto_normalizado):
-    """Busca si el texto (ya pasado por _normalizar) menciona algún producto
-    puntual, usando PALABRAS_POR_PRODUCTO. Devuelve la clave del producto
-    encontrado, o None si no matchea ninguno."""
-    for clave, palabras in PALABRAS_POR_PRODUCTO.items():
-        if clave not in PRODUCTOS:
-            continue  # por si quedó una clave vieja sin su producto correspondiente
-        for palabra in palabras:
-            if _normalizar(palabra) in texto_normalizado:
-                return clave
-    return None
-
-
-# =====================================================================
-#  Base de datos (SQLite)
-# =====================================================================
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS mensajes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            numero TEXT NOT NULL,
-            direccion TEXT NOT NULL,
-            texto TEXT NOT NULL,
-            fecha TEXT NOT NULL
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS contactos (
-            numero TEXT PRIMARY KEY,
-            nombre TEXT,
-            modo_ia INTEGER NOT NULL DEFAULT 0
-        )
-        """
-    )
-    # Si la tabla ya existía de antes (sin la columna modo_ia), la agregamos.
-    try:
-        conn.execute("ALTER TABLE contactos ADD COLUMN modo_ia INTEGER NOT NULL DEFAULT 0")
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass  # la columna ya existe
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS comprobantes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            numero TEXT NOT NULL,
-            media_id TEXT NOT NULL,
-            mime_type TEXT,
-            estado TEXT NOT NULL DEFAULT 'pendiente',
-            fecha TEXT NOT NULL
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS mensajes_procesados (
-            id TEXT PRIMARY KEY,
-            fecha TEXT NOT NULL
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS telegram_mapeo (
-            telegram_message_id INTEGER PRIMARY KEY,
-            numero_whatsapp TEXT NOT NULL,
-            fecha TEXT NOT NULL
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS pagos_mp_procesados (
-            payment_id TEXT PRIMARY KEY,
-            fecha TEXT NOT NULL
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS cuestionarios (
-            numero TEXT PRIMARY KEY,
-            clave TEXT NOT NULL,
-            paso INTEGER NOT NULL DEFAULT 0,
-            respuestas TEXT NOT NULL DEFAULT '[]',
-            estado TEXT NOT NULL DEFAULT 'activo',
-            ts REAL NOT NULL
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS ofertas_bonus (
-            numero TEXT NOT NULL,
-            clave TEXT NOT NULL,
-            ts REAL NOT NULL,
-            PRIMARY KEY (numero, clave)
-        )
-        """
-    )
-    conn.commit()
-    conn.close()
-
-
-def pago_mp_ya_procesado(payment_id):
-    """Evita procesar el mismo pago de Mercado Pago dos veces (por si
-    llega el mismo aviso repetido)."""
-    conn = sqlite3.connect(DB_PATH)
-    try:
-        conn.execute(
-            "INSERT INTO pagos_mp_procesados (payment_id, fecha) VALUES (?, ?)",
-            (str(payment_id), datetime.utcnow().strftime("%d/%m %H:%M:%S")),
-        )
-        conn.commit()
-        return False  # se pudo insertar => es la primera vez que lo vemos
-    except sqlite3.IntegrityError:
-        return True  # ya existía => es un duplicado
-    finally:
-        conn.close()
-
-
-def ya_fue_procesado(message_id):
-    """Chequea si ya procesamos este mensaje antes (Meta a veces reenvía el
-    mismo webhook más de una vez, por ejemplo si el servidor tardó en
-    responder). Si ya lo vimos, lo ignoramos para no responder duplicado."""
-    if not message_id:
-        return False
-    conn = sqlite3.connect(DB_PATH)
-    try:
-        conn.execute(
-            "INSERT INTO mensajes_procesados (id, fecha) VALUES (?, ?)",
-            (message_id, datetime.utcnow().strftime("%d/%m %H:%M:%S")),
-        )
-        conn.commit()
-        return False  # se pudo insertar => es la primera vez que lo vemos
-    except sqlite3.IntegrityError:
-        return True  # ya existía ese id => es un duplicado, lo ignoramos
-    finally:
-        conn.close()
-
-
-def registrar_mapeo_telegram(telegram_message_id, numero_whatsapp):
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute(
-        "INSERT OR REPLACE INTO telegram_mapeo (telegram_message_id, numero_whatsapp, fecha) VALUES (?, ?, ?)",
-        (telegram_message_id, numero_whatsapp, datetime.utcnow().strftime("%d/%m %H:%M:%S")),
-    )
-    conn.commit()
-    conn.close()
-
-
-def obtener_numero_por_mensaje_telegram(telegram_message_id):
-    conn = sqlite3.connect(DB_PATH)
-    fila = conn.execute(
-        "SELECT numero_whatsapp FROM telegram_mapeo WHERE telegram_message_id = ?",
-        (telegram_message_id,),
-    ).fetchone()
-    conn.close()
-    return fila[0] if fila else None
-
-
-def obtener_nombre_contacto(numero):
-    """Devuelve el nombre guardado del contacto, o el número si no hay
-    nombre disponible (por ejemplo, si todavía no mandó su perfil)."""
-    conn = sqlite3.connect(DB_PATH)
-    fila = conn.execute("SELECT nombre FROM contactos WHERE numero = ?", (numero,)).fetchone()
-    conn.close()
-    if fila and fila[0]:
-        return fila[0]
-    return numero
-
-
-def _nombre_saludo(numero):
-    """' Juan' si tenemos el primer nombre del contacto y es un nombre normal
-    (solo letras); si no, '' (así el saludo queda bien igual)."""
-    try:
-        nombre = obtener_nombre_contacto(numero)
-        primero = str(nombre).strip().split()[0] if nombre else ""
-        if primero and primero != numero and primero.isalpha() and len(primero) <= 15:
-            return " " + primero.capitalize()
-    except Exception:
-        pass
-    return ""
-
-
-def _escapar_html(texto):
-    """Escapa los caracteres especiales de HTML para que Telegram no rompa
-    el formato si el mensaje del cliente trae &, < o >."""
-    return (
-        str(texto)
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )
+# Mensaje final de agradecimiento (se manda un rato después de entregar la compra).
+# Pegá acá el link de tu página/Facebook/Instagram donde quieras el comentario.
+# Si lo dejás vacío "", el mensaje sale igual pero sin link.
+COMENTARIO_LINK = ""
+SEGUNDOS_PEDIR_COMENTARIO = 120   # cuánto espera después de entregar
 
 
 # ---------------------------------------------------------------------
-# Respuestas rápidas organizadas en CATEGORÍAS: al tocar una categoría en
-# Telegram, se despliegan sus opciones específicas (sub-botones). Al
-# tocar una opción, se le manda ese texto al cliente por WhatsApp y se
-# vuelve al menú de categorías. El botón de link "Hablar personalmente"
-# siempre está arriba de todo, en cualquier nivel del menú.
-#
-# Para agregar/cambiar categorías u opciones, se edita este diccionario.
-# Las claves (ej: "pago", "pago1") son internas, no se ven.
+# 2) DATOS DE COBRO (transferencia / Lemon)
 # ---------------------------------------------------------------------
-CATEGORIAS_RESPUESTAS = {
-    "pago": {
-        "titulo": "💰 Pago",
-        "opciones": {
-            "pago1": ("✅ Ya enviamos", "¡Listo! Ya te enviamos los manuales, cualquier duda escribinos."),
-            "pago2": ("📸 Reenviar comprobante", "¿Podés reenviar el comprobante? No lo pudimos ver bien."),
-            "pago3": ("⏳ Dame minutos", "Dame unos minutos que ya te atiendo."),
+DATOS_TRANSFERENCIA = {
+    "alias": "droply.ia",
+    "cvu": "0000168300000023859803",
+    "lemontag": "$emanuel.cristian",
+    "titular": "Cristian Emanuel Chicchi Verbo",
+}
+
+
+# ---------------------------------------------------------------------
+# 3) PROMPT PARA LA IA DE RESPALDO (Gemini / Groq)
+#    Esto define cómo "habla" la IA cuando alguien pide hablar con un
+#    asesor y todavía no lo atendió un humano.
+# ---------------------------------------------------------------------
+PROMPT_SISTEMA_IA = (
+    "Sos un asistente de ventas por WhatsApp para Droply IA, un negocio que vende "
+    "productos digitales. Entre sus productos están el PACK GAMER de 78 videojuegos para PC ($5.999, precio de oferta), el Kit Maestro de Arquitectura y "
+    "Construcción (16 manuales técnicos en PDF, $5.500), la Colección de Libros de Artes Marciales (25 carpetas de disciplinas, más de 1 GB de material digital, $6.500), el Pack Retro Games (juegos clásicos para el celular, $3.000), TAPOUT XT, programa de entrenamiento desde casa en video ($8.999). "
+    "Respondé breve, claro y amable en español. Si el cliente pregunta por algo que no "
+    "sea un producto del catálogo, invitá a consultar el menú escribiendo DROPLY. "
+    "Orientalo a escribir el nombre del producto (*kit maestro*, *retro games* o *canción*) para que el sistema le muestre la ficha completa."
+)
+
+
+# ---------------------------------------------------------------------
+# 4) PALABRAS QUE ACTIVAN EL MENÚ GENERAL (saludos, etc.)
+# ---------------------------------------------------------------------
+PALABRAS_ACTIVADORAS = [
+    "hola",
+    "holaa",
+    "buenas",
+    "buen dia",
+    "buenos dias",
+    "buenas tardes",
+    "buenas noches",
+    "que tal",
+    "quiero mas informacion",
+    "quiero informacion",
+    "mas informacion",
+    "informacion",
+    "kit maestro",
+    "droply",
+]
+
+
+# ---------------------------------------------------------------------
+# 4.1) FRASES DE ACCIÓN EN TEXTO LIBRE
+#      ----------------------------------------------------------------
+#      Mucha gente no toca los botones interactivos de WhatsApp y en
+#      cambio escribe directamente lo que quiere. Estas listas funcionan
+#      como una red de contención: si el mensaje contiene alguna de estas
+#      frases, el bot hace LO MISMO que si hubiera tocado el botón
+#      correspondiente (Ver qué incluye / Comprar / Hablar con asesor),
+#      sin necesidad de que use los botones.
+# ---------------------------------------------------------------------
+FRASES_VER_QUE_INCLUYE = [
+    "que incluye",
+    "que trae",
+    "los libros",
+    "el contenido",
+    "que tiene el pack",
+    "los manuales",
+    "que manuales son",
+]
+
+FRASES_COMPRAR = [
+    "comprar",
+    "quiero comprar",
+    "como pago",
+    "como hago para pagar",
+    "cuanto sale",
+    "el precio",
+    "quiero pagar",
+    "quiero adquirir",
+    "como lo compro",
+    "alias",
+]
+
+# ---------------------------------------------------------------------
+# AVISOS POR TELEGRAM
+#   Los comprobantes de pago SIEMPRE te llegan. Estas opciones controlan el resto.
+#   TELEGRAM_AVISAR_TODO = False  -> NO te avisa cada mensaje ni cada botón (preguntas
+#       sueltas como "cuánto cuesta?" las contesta el bot solo). Solo te llegan los
+#       mensajes de quien pidió hablar con un asesor.
+#   TELEGRAM_AVISAR_PIDE_ALIAS = True -> un aviso corto cuando alguien pide los datos de
+#       pago (es el cliente más "caliente"). Poné False si tampoco lo querés.
+#   Si ponés TELEGRAM_AVISAR_TODO = True, vuelve a avisar todo como antes.
+# ---------------------------------------------------------------------
+TELEGRAM_AVISAR_TODO = False
+TELEGRAM_AVISAR_PIDE_ALIAS = True
+
+
+FRASES_ASESOR = [
+    "hablar con un asesor",
+    "hablar con alguien",
+    "hablar con una persona",
+    "hablar con un humano",
+    "atencion al cliente",
+    "quiero hablar con alguien",
+]
+
+
+# ---------------------------------------------------------------------
+# 5) PRODUCTOS (packs) — agregá acá nuevos bloques y aparecen solos en
+#    el menú del bot.
+# ---------------------------------------------------------------------
+# Link de la publicación/anuncio del kit de invitaciones, donde el cliente deja su comentario.
+# PENDIENTE: pegar acá el link (entre las comillas).
+LINK_ANUNCIO_INVITACIONES = ""
+
+PRODUCTOS = {
+    "kit_maestro": {
+        "titulo": "Kit Maestro de Arquitectura y Construcción",
+        "titulo_boton": "Kit Maestro",  # texto del botón en el menú (máx. 20 caracteres)
+        # --- Ficha en modo "oferta de libros": saludo, oferta, cada libro con su
+        # portada (título + autor), el regalo y el precio con botón de compra.
+        "modo_oferta_libros": True,
+        # A los 5 minutos sin comprar: mensaje de venta cálido con el adelanto de cada libro.
+        "recordatorio_fuerte": {"segundos": 300},
+        "saludo": (
+            "¡Hola{nombre}! 👋 Qué bueno que me escribiste. Te cuento sobre el "
+            "*Kit Maestro de Arquitectura y Construcción* 🏗️\n\n"
+            "Es una biblioteca pensada para que proyectes, calcules y construyas con más seguridad, "
+            "ya seas estudiante, profesional o estés levantando tu propia casa. 💪"
+        ),
+        "oferta_intro": (
+            "Por solo *$5.500* te llevás estos *{n} libros* 🙌\n"
+            "Mirá cuáles son 👇"
+        ),
+        "sin_botones_ficha": True,  # la ficha termina en el mensaje de ALIAS, sin botones
+        # A los 20 minutos sin comprar: explica cómo es la compra, para sacar dudas.
+        # A los 20 minutos sin comprar: precio especial SOLO HASTA LAS 23:59 DE HOY (el bot lo cumple de
+        # verdad y se ofrece una sola vez por cliente). Reemplaza al mensaje "recordatorio_extra".
+        "promo_hoy": {
+            "segundos": 1200,
+            "precio": "$4.500",
+            "precio_valor": 4500,
+            "sin_botones": True,
+            "texto": (
+                "¡Hola{nombre}! 🔥 Tengo una sorpresa para vos\n\n"
+                "*PRECIO ESPECIAL SOLO POR HOY*\n"
+                "El *Kit Maestro* con los 16 libros y el plus sorpresa te sale *{precio}* "
+                "en lugar de {normal}.\n\n"
+                "⏰ Vale *hasta las 23:59 de hoy*. Mañana vuelve a {normal}.\n\n"
+                "Te cuento cómo es, para que te quedes tranquilo:\n"
+                "1️⃣ Me escribís *ALIAS* y te paso los datos para transferir.\n"
+                "2️⃣ Transferís {precio} y me mandás la foto del comprobante.\n"
+                "3️⃣ Apenas lo verifico, te llega el link de Drive con todo. 📂\n\n"
+                "Si tenés cualquier duda, escribime y te respondo enseguida. 🙌"
+            ),
         },
+        # (Mensaje alternativo de 20 min; solo se usa si se quita la promo de arriba.)
+        "recordatorio_extra": {
+            "segundos": 1200,
+            "texto": (
+                "¡Hola{nombre}! 😊 Te escribo para que te quedes tranquilo con la compra, "
+                "así que te cuento cómo funciona:\n\n"
+                "1️⃣ Me escribís *ALIAS* y te paso los datos para transferir.\n"
+                "2️⃣ Transferís {precio} y me mandás la foto del comprobante.\n"
+                "3️⃣ Apenas lo verifico, te llega el link de Drive con todo: los 16 libros y el plus sorpresa. 📂\n\n"
+                "Lo abrís desde el celular o la compu y podés descargarlo para tenerlo siempre con vos. 💾\n\n"
+                "Si tenés cualquier duda, escribime y te respondo enseguida. 🙌"
+            ),
+            "texto_alias": "✍️ ¿Arrancamos? Escribime *ALIAS* y te paso los datos. 👇",
+        },
+        "enviar_portadas": False,  # no manda una imagen por cada libro (queda solo el banner)
+        "texto_vista_breve": "👀 *Y acá podés ver un adelanto de cada uno, sin compromiso:*",
+        "texto_libros_regalo": "🎁 *Y no solo eso: además te llevás de REGALO estos {n} libros:*",
+        "texto_regalo": "🎁 *Y para que arranques con todo, también te regalo:*",
+        "texto_alias": "✍️ ¿Te sirve? Escribime *ALIAS* y te paso los datos para transferir. ¡Es rápido! 👇",
+        "texto_botones": "O si preferís, tocá el botón 👇",
+        "descripcion_corta": "16 manuales técnicos en PDF",
+        "precio": "$5.500",
+        "precio_oferta": "$5.500",
+        "precio_valor": 5500,  # el mismo precio, pero como número (lo necesita Mercado Pago)
+        "link_pago": "https://mpago.la/17uyqFK",
+        "imagen": "https://i.ibb.co/1f2DYYpj/a722ab83-e521-4fef-b680-54e6a8b847b7.png",
+        "imagen_oferta": "https://i.ibb.co/1f2DYYpj/a722ab83-e521-4fef-b680-54e6a8b847b7.png",
+        # Carpeta de Google Drive con TODOS los manuales completos. Se manda
+        # este único link cuando se confirma el pago (en vez de los links
+        # individuales de cada manual, que son solo para "ver adelanto").
+        "link_carpeta_final": "https://drive.google.com/drive/folders/1YwPEiA5UWOl60GIg_8YYxxVpWaaO6MSw?usp=sharing",
+        # 2ª carpeta con los libros 8 al 16 (Ching). Se manda junto a la primera después del pago.
+        "link_carpeta_extra": "https://drive.google.com/drive/folders/1ZmcDD6CkFwADoZZY3hceP_2yJ7tnnBse?usp=sharing",
+        # Regalo y mensaje de precio con apuro, SIN fecha de vencimiento.
+        "regalo_sorpresa": ["Un plus único y sorpresa que te va a ayudar en el mundo de la construcción"],
+        "mensaje_precio": (
+            "💰 *Todo por $5.500*  (precio normal ~$6.000~)\n"
+            "Es un pago único: lo pagás una sola vez y es tuyo.\n\n"
+            "Es el precio que tenemos ahora y puede subir más adelante, así que si te sirve, aprovechalo. 😉"
+        ),
+        # --- PROMO DE LOS 5 MINUTOS (bonus) ---
+        # Si alguien ve la ficha y a los 5 minutos no avanzó, el bot le manda
+        # esta oferta: "si comprás hoy, te llevás de regalo ...". Al aprobar el
+        # pago (hasta 24 h después de la oferta) el bot le manda el regalo.
+        # IMPORTANTE: la promo SOLO se activa si "link" tiene el link de Drive
+        # del regalo completo. Mientras esté vacío, no se manda nada.
+        "bonus_promo_DESACTIVADO": {
+            "titulo": "Guía gráfica de Diseño Residencial (eBook de Luis Furushio)",
+            "link": "https://drive.google.com/file/d/17516DKeXpsCORRvP4W1LjZfv3BdpPLoL/view?usp=sharing",  # eBook COMPLETO (se entrega después del pago)
+            "password": "Orange-Black-Sky9",  # contraseña del PDF (se le manda al cliente junto con el regalo)
+            "imagen": "https://i.ibb.co/wZYFYJmY/image.png",  # portada del regalo, se manda arriba del mensaje de los 5 min
+            "imagen_recordatorio": "https://i.ibb.co/p6cn10qW/image.png",  # 2ª imagen, solo en el aviso de los 10 min
+            "link_adelanto": "https://drive.google.com/file/d/1jP-ZFbKMh2lekFUwax2ElYHNTG942WVC/view?usp=sharing",  # adelanto breve (opcional)
+            "segundos": 180,      # 5 minutos
+            "segundos_recordatorio": 600,  # 10 minutos: segundo aviso si todavía no compró
+        },
+        "manuales": [
+            {"titulo": "Cómo se proyecta una Vivienda", "imagen": "https://i.ibb.co/Zp0bL2Gm/image.png", "autor": "J.L. Moia",
+             "link": "https://drive.google.com/file/d/114PXZLc-QRsfuEF3eSVSMlWEq_ICbJgQ/view?usp=sharing"},
+            {"titulo": "Manual de Instalaciones Hidráulicas, Sanitarias, Aire, Gas y Vapor", "imagen": "https://i.ibb.co/GfpG5xQK/image.png", "autor": "Ing. Sergio Zepeda C.",
+             "link": "https://drive.google.com/file/d/1ooDTnZyEAWwz_SeKjRxgps9N7FhwWiPS/view?usp=sharing"},
+            {"titulo": "Método práctico para la elaboración de presupuestos de construcción", "imagen": "https://i.ibb.co/V0j8grhY/image.png", "autor": "Arq. William García",
+             "link": "https://drive.google.com/file/d/1kfJe0vmQtXBl3p_mJ39kkU0GU-OwUDst/view?usp=sharing"},
+            {"titulo": "Manual de Autoconstrucción", "imagen": "https://i.ibb.co/qMrRY3Gh/image.png", "autor": "Carlos Rodríguez",
+             "link": "https://drive.google.com/file/d/1sbUe7XD2FRM5A-f2I6opXDoMF9y2gO1Q/view?usp=sharing"},
+            {"titulo": "Manual del Arquitecto Descalzo", "autor": "Johan van Lengen",
+             "link": "https://drive.google.com/file/d/1MhPK80rcTAnvZwbo2wv1wXAyxsrAgTFb/view?usp=sharing"},
+            {"titulo": "Curso Básico de Instalaciones Eléctricas", "autor": "Juan Carlos Calloni",
+             "link": "https://drive.google.com/file/d/1ETqTBa_nxWLigyHmQY8mvoeqqS49AIH3/view?usp=sharing"},
+            {"titulo": "Instalaciones Sanitarias", "autor": "Jorge Ortíz",
+             "link": "https://drive.google.com/file/d/1rd-tAxh3Qk8wcp-6TlFmzpjwzs25SEdA/view?usp=sharing"},
+            {"titulo": "Arquitectura: Forma, espacio y orden", "autor": "Francis D.K. Ching", "regalo": True},  # de regalo, sin adelanto
+            {"titulo": "Diccionario visual de arquitectura", "autor": "Francis D.K. Ching", "regalo": True},  # de regalo, sin adelanto
+            {"titulo": "Diseño de interiores: Un manual", "autor": "Francis D.K. Ching", "regalo": True},  # de regalo, sin adelanto
+            {"titulo": "Manual de dibujo arquitectónico", "autor": "Francis D.K. Ching", "regalo": True},  # de regalo, sin adelanto
+            {"titulo": "Design Drawing, 2nd Ed (ePub, en inglés)", "autor": "Francis D.K. Ching", "regalo": True},  # de regalo, sin adelanto
+            {"titulo": "Guía de Construcción Ilustrada", "autor": "Francis D.K. Ching", "regalo": True},  # de regalo, sin adelanto
+            {"titulo": "Manual de estructuras ilustrado", "autor": "Francis D.K. Ching", "regalo": True},  # de regalo, sin adelanto
+            {"titulo": "Historia global de la arquitectura", "autor": "Francis D.K. Ching y Mark Jarzombek", "regalo": True},  # de regalo, sin adelanto
+            {"titulo": "Arquitectura ecológica: Un manual ilustrado", "autor": "Francis D.K. Ching e Ian M. Shapiro", "regalo": True},  # de regalo, sin adelanto
+        ],
     },
-    "producto": {
-        "titulo": "📦 Producto",
-        "opciones": {
-            "prod1": ("📚 Qué incluye", "Te paso el detalle de qué incluye en un toque, dame un segundo."),
-            "prod2": ("💵 Precio", "El precio depende del pack — contame cuál te interesa y te confirmo."),
-            "prod3": ("🕐 Cuándo llega", "Apenas confirmemos tu pago, te mando el archivo al instante por acá mismo."),
-        },
+    "pack_retro_games": {
+        "titulo": "Pack Retro Games — Juegos Clásicos para tu Celular",
+        "titulo_boton": "Pack Retro Games",
+        "descripcion_corta": "Arcade y consolas clásicas, listos para jugar",
+        "precio": "$3.000",
+        "precio_oferta": "$3.000",
+        "precio_valor": 3000,
+        "imagen": "https://i.ibb.co/chHf0R6Q/cf1c03b1-1b60-4da4-a90e-ecdebe5ccf99-1.png",
+        "imagen_oferta": "https://i.ibb.co/chHf0R6Q/cf1c03b1-1b60-4da4-a90e-ecdebe5ccf99-1.png",
+        "emoji_ficha": "🎮",
+        "saludo": (
+            "¡Hola{nombre}! 👋 Qué bueno que me escribiste. Te cuento sobre el "
+            "*Pack Retro Games* 🎮\n\n"
+            "Son los juegos clásicos con los que crecimos, para que los vuelvas a jugar directo en tu celular. "
+            "Mirá qué incluye 👇"
+        ),
+        "mensaje_precio": (
+            "💰 *Todo por $3.000* (pago único: lo pagás una sola vez y es tuyo)\n\n"
+            "¿Te sirve? Escribime *ALIAS* y te paso los datos para transferir. ¡Es rápido! 👇"
+        ),
+        # Carpeta de Drive con todo el pack. Se manda este link único cuando
+        # se confirma el pago.
+        "link_carpeta_final": "https://drive.google.com/drive/folders/1_LnUPbe7YTVMEZDkXP4vpWgAJVNIp5h4?usp=sharing",
+        "que_incluye": [
+            "Juegos clásicos de arcade y consolas retro para revivir la infancia",
+            "Emulador incluido, con control táctil en pantalla",
+            "Jugás directo en tu celular, sin cables ni consola",
+            "Funciona en todo tipo de dispositivos",
+            "Instrucciones paso a paso para instalarlo",
+            "Acceso inmediato después de confirmar el pago",
+        ],
+        "manuales": [],  # este producto no usa manuales/PDFs
     },
-    "otro": {
-        "titulo": "💬 Otro",
-        "opciones": {
-            "otro1": ("🙏 Gracias compra", "¡Gracias por tu compra! Cualquier consulta, escribí."),
-            "otro2": ("💬 Otra cosa", "Gracias por tu mensaje, ya te respondo."),
-        },
+    "artes_marciales": {
+        "titulo": "Colección de Libros de Artes Marciales",
+        "titulo_boton": "Artes Marciales",  # máx. 20 caracteres
+        "descripcion_corta": "25 carpetas · más de 1 GB de material",
+        "precio": "$6.500",
+        "precio_oferta": "$6.500",
+        "precio_valor": 6500,
+        "imagen": "https://i.ibb.co/bRzGx6NH/1-1.png",
+        "imagen_oferta": "https://i.ibb.co/bRzGx6NH/1-1.png",
+        "emoji_ficha": "🥋",
+        # Si no compra en 15 min, se le ofrece este precio SOLO HASTA LAS 23:59 DE HOY
+        # (el bot lo respeta de verdad: pasada la medianoche vuelve al precio normal).
+        # Se ofrece una sola vez por cliente.
+        "promo_hoy": {"segundos": 900, "precio": "$4.500", "precio_valor": 4500,
+                      "imagen": "https://i.ibb.co/7db2hyg6/image.png"},  # flyer que va junto con el mensaje
+        "sin_recordatorio_corto": True,  # no manda nada a los 3 minutos
+        "saludo": (
+            "¡Hola{nombre}! 👋 Qué bueno que me escribiste. Te cuento sobre la "
+            "*Colección de Libros de Artes Marciales* 🥋\n\n"
+            "Es una biblioteca digital pensada para los que viven las artes marciales, ya sea que recién empiecen, "
+            "entrenen hace años o enseñen. 💪 Mirá todo lo que incluye 👇"
+        ),
+        # Carpeta de Drive con todo el contenido. Se manda cuando se confirma el pago.
+        "link_carpeta_final": "https://drive.google.com/drive/folders/1BwKeFXnaS_ZKkmLMtEgUGCTk9Nk3piMv?usp=sharing",
+        "que_incluye": [
+            "Más de 1 GB de material digital, en 25 carpetas por disciplina",
+            "Boxeo, Muay Thai, Krav Maga, Defensa Personal, Lucha y Combate Militar",
+            "Judo, Karate, Kyokushin, Aikido, Kendo, Jiujutsu y Ninjutsu",
+            "Taekwondo, Hapkido, Kung Fu, Wushu, Chi Kung y Tai Chi",
+            "Armas (Kobudo y Nunchaku), filosofía marcial y estrategia",
+            "Acondicionamiento físico, anatomía, psicomotricidad y Kyusho",
+            "Una carpeta completa de Bruce Lee",
+            "Libros sueltos como la colección Aprendiendo Budo Taijutsu",
+            "Entrega inmediata por Google Drive después de confirmar el pago",
+            "Pago único, sin suscripciones",
+        ],
+        "texto_incluye": (
+            "🥋 *Esto es lo que incluye la colección*\n"
+            "Más de *1 GB* de material digital, ordenado en *25 carpetas* por disciplina 👇\n\n"
+            "🥊 *Combate y deportes de contacto*\n"
+            "Boxeo · Muay Thai · Lucha · Krav Maga · Lima Lama · Kenpo Kajukenbo · Combate Militar · Defensa Personal\n\n"
+            "🇯🇵 *Artes marciales japonesas*\n"
+            "Judo · Karate · Kyokushin · Aikido · Kendo · Jiujutsu · Ninjutsu y Shinobi Jutsu\n\n"
+            "🇰🇷🇨🇳 *Coreanas y chinas*\n"
+            "Taekwondo · Hapkido · Kung Fu · Wushu · Chi Kung · Tai Chi\n\n"
+            "⚔️ *Armas, filosofía y estrategia*\n"
+            "Kobudo y Nunchaku · Filosofía marcial y estrategia\n\n"
+            "💪 *Cuerpo y preparación*\n"
+            "Acondicionamiento físico · Anatomía y fisiología · Psicomotricidad · Kyusho y acupuntura\n\n"
+            "🐉 *Bruce Lee*\n"
+            "Una carpeta dedicada\n\n"
+            "📘 *Y además, libros sueltos* como la colección Aprendiendo Budo Taijutsu, "
+            "Antiguas y modernas artes marciales de Corea y Armas de combate callejero\n\n"
+            "⚡ Entrega inmediata por Google Drive\n"
+            "📱 Se abre en celular, tablet y computadora\n"
+            "✅ Pago único, sin suscripciones"
+        ),
+        "mensaje_precio": (
+            "💰 *Todo por $6.500* (pago único: lo pagás una sola vez y es tuyo)\n\n"
+            "¿Te sirve? Escribime *ALIAS* y te paso los datos para transferir. ¡Es rápido! 👇"
+        ),
+        "manuales": [],  # este producto no usa lista de libros
     },
-    "guiar": {
-        "titulo": "🔄 Guiar",
-        "opciones": {
-            "guiar1": ("📝 Escribí DROPLY", "Si querés ver todo de nuevo, escribí *DROPLY* y te muestro el pack completo. 😊"),
-            "guiar2": ("❓ Qué buscás", "¿Qué tipo de información te gustaría? Contame y te ayudo directo. 😊"),
-            "guiar3": ("📦 Ver el pack", "Escribí *arquitectura y construcción* y te mando toda la info del pack de nuevo."),
+    "influir_masas": {
+        "titulo": "Influir en las masas (eBook)",
+        "titulo_boton": "Influir en las masas",  # máx. 20 caracteres
+        "descripcion_corta": "eBook de psicología · 113 páginas",
+        "precio": "$2.500",
+        "precio_oferta": "$2.500",
+        "precio_valor": 2500,
+        "imagen": "",  # PENDIENTE: pegar el "Direct link" de imgbb (i.ibb.co/...) de la portada
+        "imagen_oferta": "",
+        "emoji_ficha": "🐺",
+        # Si no compra en 15 min: precio especial SOLO HASTA LAS 23:59 DE HOY (una sola vez por cliente).
+        "promo_hoy": {"segundos": 900, "precio": "$1.500", "precio_valor": 1500},
+        "sin_recordatorio_corto": True,
+        "descripcion_entrega": "tu libro *Influir en las masas*, listo para leer y descargar",
+        "saludo": (
+            "¡Hola{nombre}! 👋 Qué bueno que me escribiste. Te cuento sobre *Influir en las masas* 🐺\n\n"
+            "Es un libro que explica cómo un puñado de personas aprendió a mover la opinión de millones, "
+            "y cómo reconocerlo para que no te lo hagan a vos. 🧠 Mirá de qué trata 👇"
+        ),
+        # Link de Drive con el PDF. Se manda al confirmar el pago.
+        "link_carpeta_final": "https://drive.google.com/file/d/1B9KlUu6JAVj_WAz_4S-R8TKU9H5jQGoj/view?usp=sharing",
+        "que_incluye": [
+            "eBook completo en PDF, 113 páginas",
+            "Cómo nació la propaganda moderna: Le Bon, Bernays y Lippmann",
+            "Las 10 reglas de oro y los 5 filtros de la manipulación",
+            "Marketing, redes y algoritmos como propaganda actual",
+            "Las señales del manipulador y cómo defenderte",
+            "Glosario de términos y cronología esencial",
+            "Entrega inmediata por Google Drive",
+            "Pago único, sin suscripciones",
+        ],
+        "texto_incluye": (
+            "🐺 *Esto es lo que vas a aprender*\n"
+            "Un libro de *113 páginas*, en 12 capítulos 👇\n\n"
+            "📜 *La historia*\n"
+            "Gustave Le Bon y la psicología de las multitudes · Edward Bernays, el sobrino de Freud que inventó las \"relaciones públicas\" · Walter Lippmann y el pseudoambiente\n\n"
+            "🧠 *Las técnicas*\n"
+            "Los lobos que llevamos dentro · Las diez reglas de oro · Los cinco filtros\n\n"
+            "📱 *Hoy*\n"
+            "El marketing como propaganda con traje y corbata · El algoritmo como el nuevo Bernays\n\n"
+            "🛡️ *Cómo defenderte*\n"
+            "Las señales del manipulador · La higiene mental del ciudadano · Sobrevivir al siglo XXI despierto\n\n"
+            "📚 *Extras:* glosario de términos clave y cronología esencial\n\n"
+            "⚡ Entrega inmediata por Google Drive\n"
+            "📱 Se lee en celular, tablet y computadora\n"
+            "✅ Pago único, sin suscripciones"
+        ),
+        "mensaje_precio": (
+            "💰 *Todo por $2.500* (pago único: lo pagás una sola vez y es tuyo)\n\n"
+            "¿Te sirve? Escribime *ALIAS* y te paso los datos para transferir. ¡Es rápido! 👇"
+        ),
+        "manuales": [],
+    },
+    "kit_invitaciones": {
+        "titulo": "Kit Premium de Invitaciones Digitales",
+        "titulo_boton": "Kit Invitaciones",  # máx. 20 caracteres
+        "titulo_boton_compra": "✅ QUIERO",  # texto del botón de compra (máx. 20)
+        "descripcion_corta": "+120 plantillas en Canva · 4 bonos",
+        "precio": "$5.500",
+        "precio_oferta": "$5.500",
+        "precio_valor": 5500,
+        "imagen": "https://i.ibb.co/hFxjKLPD/image.png",
+        "imagen_oferta": "https://i.ibb.co/hFxjKLPD/image.png",
+        "emoji_ficha": "💌",
+        # Si no compra en 15 min: precio especial SOLO HASTA LAS 23:59 DE HOY (una sola vez por cliente).
+        "promo_hoy": {"segundos": 900, "precio": "$3.900", "precio_valor": 3900},
+        "sin_recordatorio_corto": True,
+        # PDF que se manda como archivo adjunto al pagar. Está en la carpeta archivos/ del repo.
+        "pdf_entrega": "Kit_Invitaciones_Digitales.pdf",
+        # Pedido de comentario (reemplaza al genérico). Llega 5 minutos después de la entrega.
+        # Si el cliente manda una imagen después, el bot la toma como la CAPTURA del comentario (no como pago).
+        "segundos_comentario": 300,
+        "mensaje_comentario": (
+            "CON GUSTO! 😊\n"
+            "Si eres tan amable de dejarnos tu comentario en nuestro anuncio sobre el kit de invitaciones "
+            "te lo agradecería mucho!\n\n"
+            "Puedes hacerlo aquí:\n"
+            "👇👇👇\n"
+            + (LINK_ANUNCIO_INVITACIONES + "\n" if LINK_ANUNCIO_INVITACIONES else "")
+            + "👆👆👆\n\n"
+            "Por tu ayuda te iremos regalando un Bono sorpresa por adelantado, "
+            "por favor aguardo tu comentario en el anuncio 😁\n\n"
+            "🎁 *Tu bono sorpresa por adelantado:* una plantilla de invitación de boda para editar en Canva 👇\n"
+            "https://www.canva.com/design/DAG6cgJGF9c/p03QS0g32taRaSLluc3sBA/view?utm_content=DAG6cgJGF9c&utm_campaign=designshare&utm_medium=link&utm_source=publishsharelink&mode=preview\n\n"
+            "✅ Me envías una captura de tu comentario por favor\n"
+            "☑️ Muchas gracias de antemano por tu comentario 👍\n\n"
+            "Bendiciones 🙏"
+        ),
+        # Mensaje que recibe al pagar (cuando vos aprobás). Después del mensaje se manda el PDF.
+        "mensaje_entrega": (
+            "🎉 *¡FELICITACIONES POR TU COMPRA!* 🎉\n\n"
+            "Gracias por confiar en nosotros. Ya tenés en tus manos todo lo que necesitás para "
+            "empezar tu negocio de invitaciones digitales. 💌✨\n\n"
+            "📄 Te mando abajo la *guía de acceso*, con todo el material ordenado en 3 módulos. "
+            "También la podés abrir desde Drive:\n{link}\n\n"
+            "🎓 *Módulo 1 – Tutoriales en video*\n"
+            "Aprendés paso a paso a editar, agregar cuenta regresiva y entregar en formato video o sitio web. "
+            "Empezá por el primero: *Presentación del contenido*.\n\n"
+            "🎨 *Módulo 2 – Biblioteca de plantillas*\n"
+            "Tus kits de *Bodas* y *XV Años*, listos para editar en Canva.\n\n"
+            "💰 *Módulo 3 – Cómo vender tus invitaciones*\n"
+            "Más tus *4 bonos*: ganar dinero con invitaciones, cerrar ventas por WhatsApp, "
+            "conseguir tus primeros clientes y portadas para redes.\n\n"
+            "🎁 *Regalo extra:* curso de Canva para que domines la edición desde cero:\n"
+            "https://drive.google.com/drive/folders/1TgPLl9iSsrZWTZ7KsNJyUHA2yzsATjYd?usp=sharing\n\n"
+            "Cualquier duda, escribime por acá. 🙌"
+        ),
+        "saludo": (
+            "¡Hola{nombre}! 👋 Qué bueno que me escribiste.\n\n"
+            "Emprendé desde casa creando invitaciones bonitas, modernas y listas para vender 💵✨\n\n"
+            "Con el *Kit Premium* vas a poder crear:\n"
+            "✨ Invitaciones digitales para bodas y 15 años\n"
+            "🎥 Invitaciones en video\n"
+            "🌐 Invitaciones tipo web interactivas\n"
+            "📍 Con ubicación\n"
+            "✅ Confirmación de asistencia\n"
+            "⏳ Contador regresivo\n"
+            "💌 Save the Date\n"
+            "🎵 Podés agregar música, fotos y diseño personalizado según el evento.\n\n"
+            "Con las plantillas no tenés que diseñar desde cero: es solamente editar. 🙌"
+        ),
+        # Link de Drive del mismo PDF: respaldo por si falla el envío del archivo adjunto.
+        "link_carpeta_final": "https://drive.google.com/file/d/1O1Kel_7Akn1_HTnRXgn_TOJR9YZjJRRl/view?usp=sharing",
+        "que_incluye": [
+            "Más de 120 plantillas editables en Canva",
+            "Videoaulas cortas paso a paso",
+            "Invitaciones en formato video y tipo web",
+            "Save the Date",
+            "Botones de ubicación y confirmación",
+            "4 bonos de regalo",
+        ],
+        "texto_incluye": (
+            "💌 *¿Qué recibís dentro del kit?*\n\n"
+            "✅ Más de *120 plantillas editables en Canva*, listas para usar\n"
+            "✅ Videoaulas cortas, paso a paso\n"
+            "✅ Invitaciones en formato video\n"
+            "✅ Invitaciones tipo web\n"
+            "✅ Save the Date\n"
+            "✅ Botones de ubicación y confirmación\n\n"
+            "📂 Todo está en Drive, ordenado para que avances sin complicarte.\n\n"
+            "🎁 *Y además, 4 BONOS DE REGALO:*\n"
+            "🎁 Bono 1: Guía para ganar dinero vendiendo invitaciones\n"
+            "🎁 Bono 2: Guía para cerrar ventas por WhatsApp\n"
+            "🎁 Bono 3: Guía para conseguir tus primeros clientes\n"
+            "🎁 Bono 4: Portadas editables para redes sociales\n\n"
+            "Con estos bonos tenés todo para arrancar tu negocio. 🚀"
+        ),
+        "mensaje_precio": (
+            "🇦🇷 *Precio OFERTA: $5.500*\n\n"
+            "✅ Pago único y de por vida\n"
+            "📚 Los archivos son digitales, te los envío por acá mismo.\n\n"
+            "📲 Tocá *QUIERO* (o escribilo) y te paso el ALIAS 👇"
+        ),
+        "manuales": [],
+    },
+    "pack_gamer_pc": {
+        "titulo": "PACK GAMER — 78 VIDEOJUEGOS CLÁSICOS PARA PC",
+        "titulo_boton": "🎮 Pack Gamer PC",
+        "titulo_boton_compra": "🛒 Comprar ahora",
+        "descripcion_corta": "78 juegos clásicos · Entrega digital",
+        # A los 20 minutos sin comprar: precio especial SOLO HASTA LAS 23:59 DE HOY
+        # (el bot lo cumple de verdad y se ofrece una sola vez por cliente).
+        "promo_hoy": {
+            "segundos": 1200,
+            "precio": "$3.900",
+            "precio_valor": 3900,
+            "texto": (
+                "¡Hola{nombre}! 😊 Entiendo que te parezca mucho…\n\n"
+                "Pero imaginate tener *78 videojuegos clásicos* a tu disposición, para jugarlos "
+                "cuando quieras y las veces que quieras. 🎮🔥 Un solo pago y son tuyos.\n\n"
+                "Por eso, *SOLO POR HOY* te lo dejamos a *{precio}* en lugar de {normal}. 🙌\n\n"
+                "⏰ Vale *hasta las 23:59 de hoy*. Mañana vuelve a {normal}.\n\n"
+                "Si lo querés, es muy fácil:\n"
+                "1️⃣ Tocá *COMPRAR AHORA* (o escribime *ALIAS*) y te paso los datos.\n"
+                "2️⃣ Transferís {precio} y me mandás el comprobante.\n"
+                "3️⃣ Apenas lo verifico, te llega el enlace con todos los juegos. 📂"
+            ),
         },
+        "precio": "$5.999",
+        "precio_oferta": "$5.999",
+        "precio_valor": 5999,
+        "imagen": "https://i.ibb.co/KcY1C1Dc/image.png",
+        "manuales": [],
+        "que_incluye": ["78 videojuegos y ediciones para PC", "Entrega digital por TeraBox tras aprobar el pago"],
+        "texto_entrega": "el enlace digital del PACK GAMER",
+        "descripcion_entrega": "el PACK GAMER — 78 videojuegos para PC",
+        "link_carpeta_final": "https://www.1024tera.com/spanish/sharing/link?surl=VHEDjhXw_J7mb5qF02usvA",
+        "mensaje_entrega": "🎉 *¡PAGO CONFIRMADO!*\n\n🎮 ¡Gracias por comprar el *PACK GAMER*!\n\n📦 Tu colección de 78 videojuegos y ediciones para PC está lista.\n\n🔗 *ENLACE DE ENTREGA:*\n{link}\n\n💻 Accedé al enlace para consultar y descargar los archivos.\n\n🙌 ¡Gracias por confiar en Droply IA!",
+        "saludo": "¡Hola! 👋🎮 ¡Gracias por tu interés en nuestro *PACK GAMER — 78 VIDEOJUEGOS CLÁSICOS PARA PC*!\n\n🕹️ Reviví los grandes clásicos que marcaron generaciones. Acción, aventura, estrategia, carreras, terror y mucho más.\n\n👇 ¡Mirá algunos de los juegos que incluye!",
+        "texto_incluye": "🎮 *ALGUNOS DE LOS JUEGOS DEL PACK*\n\n🏙️ GTA San Andreas\n🔫 Counter-Strike 1.6\n⚔️ Age of Empires I, II y III\n🧟 Resident Evil\n🏎️ Need for Speed Underground 2\n💥 Call of Duty\n🕹️ Half-Life y Half-Life 2\n🏡 The Sims\n🌻 Plants vs. Zombies\n\n🔥 ¡Y muchos títulos más!\n\n💻 *Para PC*\n📚 *78 videojuegos y ediciones en el catálogo.*",
+        "mensaje_precio": "🎮 *¡VOLVÉ A VIVIR LOS GRANDES CLÁSICOS!*\n\n🕹️ GTA San Andreas, Counter-Strike, Age of Empires, Need for Speed y muchos más te están esperando. 🔥\n\n💻 *PACK GAMER PARA PC*\n🎮 78 videojuegos y ediciones en el catálogo.\n\n💰 *PRECIO DE OFERTA: $5.999 ARS*\n\n✅ Un solo pago, sin suscripciones.\n📂 Entrega digital por TeraBox después de confirmar el pago.\n\n🚀 *¡Tu próxima aventura gamer empieza acá!*\n\n👇 Tocá el botón *COMPRAR AHORA*.\n\n✍️ O si preferís, escribí *ALIAS* y te paso los datos para que puedas realizar el pago. 🙌",
+        "catalogo_juegos": [
+            'Age of Empires Gold',
+            'Age of Empires II',
+            'Age of Empires III',
+            'Alice: Madness Returns',
+            'Aliens versus Predator Classic',
+            'Batman: Vengeance',
+            'Battlefield 1942',
+            'Battlefield: Bad Company',
+            'Call of Duty 2',
+            'Call of Duty: World at War',
+            'Castle Crashers',
+            'Castlevania Advance Collection',
+            'Cold Fear',
+            'Contra Anniversary Collection',
+            'Counter-Strike 1.6',
+            'Cuphead',
+            'Day of Defeat: Source',
+            'DELTARUNE',
+            'DOOM + DOOM II Enhanced',
+            'DOOM 64',
+            "Don't Starve",
+            "Don't Starve Together",
+            'F.E.A.R. Platinum',
+            'F.E.A.R. 2: Project Origin',
+            'Fallout 3: Game of the Year Edition',
+            'Grand Theft Auto: San Andreas',
+            'Grand Theft Auto (versión por identificar)',
+            'Half-Life',
+            'Half-Life 2: The Orange Box',
+            'Halo: Combat Evolved',
+            'Hitman: Codename 47',
+            'Hitman 2: Silent Assassin',
+            'Just Cause',
+            'Just Cause 2',
+            'Land of the Dead',
+            'Mafia: The City of Lost Heaven',
+            'Mafia II',
+            'Max Payne',
+            'Medal of Honor: Allied Assault',
+            'Metal Slug PC',
+            'Mortal Kombat',
+            'Need for Speed: Underground 2',
+            'Noita',
+            'Penumbra Collection',
+            'Plants vs. Zombies GOTY',
+            'Plague Inc: Evolved',
+            'Portal',
+            'Portal 2',
+            'Postal 2',
+            'Pro Evolution Soccer 6 (PES 6)',
+            'Pro Evolution Soccer 2013 (PES 2013)',
+            'Quake III: Gold Edition',
+            'Quake 4',
+            'Rayman Origins',
+            'Resident Evil 2 HD',
+            'Resident Evil 3 HD',
+            'Resident Evil 4',
+            'Resident Evil HD Remaster',
+            'RimWorld',
+            "Saint Seiya: Soldiers' Soul",
+            'Scooby-Doo! First Frights',
+            'SimCity 4 Deluxe Edition',
+            'Splinter Cell: Chaos Theory',
+            'StarCraft Remastered',
+            'Star Wars Jedi Knight II: Jedi Outcast',
+            'Terraria',
+            'The Binding of Isaac: Rebirth',
+            'The Golden Compass',
+            'The Lord of the Rings: The Return of the King',
+            'The Sims 1 Legacy Collection',
+            'The Sims 2 Legacy Collection',
+            'Tomb Raider 1 + 2 + 3',
+            'Ultimate Spider-Man',
+            'Unreal Tournament 1999',
+            'Unreal Tournament 2004',
+            'Warcraft III: Reign of Chaos',
+            'Warcraft III: The Frozen Throne',
+            'Yu-Gi-Oh! Power of Chaos',
+        ],
+        "requisitos_pc": "💻 *REQUISITOS MÍNIMOS — PACK GAMER*\n\n🎮 *Configuración orientativa para juegos clásicos:*\n\n🖥️ Sistema operativo: Windows 10 u 11.\n⚙️ Procesador: Intel Core i3 o equivalente.\n🧠 Memoria RAM: 4 GB como referencia inicial.\n🎨 Gráficos: compatibles con los requisitos de cada juego.\n💾 Almacenamiento: espacio disponible según el videojuego.\n\n🎓 *¿TENÉS UNA NETBOOK DEL GOBIERNO?*\n\n🎮 ¡También podés disfrutar de muchos de los clásicos del PACK GAMER!\n\n✅ Una gran cantidad de juegos clásicos pueden funcionar sin problemas en determinadas netbooks del Gobierno.\n\n💻 La compatibilidad depende del modelo de tu computadora y de los requisitos de cada videojuego.\n\n🔥 ¡Reviví tus juegos favoritos y disfrutá horas de diversión!\n\n⚠️ Estos requisitos son orientativos y no garantizan compatibilidad con los 78 juegos.",
+    },
+    "entrenamiento_xt2": {
+        "titulo": "TAPOUT XT — Programa de Entrenamiento",
+        "titulo_boton": "TAPOUT XT",  # máx. 20 caracteres
+        "titulo_boton_compra": "✅ QUIERO",
+        "descripcion_corta": "Entrená desde casa · en video",
+        "precio": "$8.999",
+        "precio_oferta": "$8.999",
+        "precio_valor": 8999,
+        "imagen": "",  # PENDIENTE: "Direct link" de imgbb (i.ibb.co/...) de una portada propia
+        "imagen_oferta": "",
+        "emoji_ficha": "💪",
+        # PROMO "solo por hoy": todavía sin definir (a pedido, con el precio nuevo de $8.999).
+        "sin_recordatorio_corto": True,
+        "saludo": (
+            "🥊 ¡Hola{nombre}! 👋 Bienvenido a *TAPOUT XT*.\n\n"
+            "🔥 ¿Te gustaría entrenar desde casa con un programa que combina movimientos de "
+            "artes marciales, fuerza y resistencia?\n\n"
+            "Con *TAPOUT XT* podés seguir entrenamientos organizados desde tu celular, "
+            "computadora o TV compatible.\n\n"
+            "📲 Es 100% digital, con acceso mediante Google Drive.\n\n"
+            "💪 ¿Querés conocer todo lo que incluye el programa? 👇"
+        ),
+        "link_carpeta_final": "https://drive.google.com/drive/folders/1-Qn0B2zDcroVxC5Wa1lD0GJlVR0I7LTi?usp=sharing",
+        "que_incluye": [
+            "Entrenamientos guiados en video",
+            "Rutinas para diferentes grupos musculares",
+            "Ejercicios cardiovasculares y de acondicionamiento",
+            "Material de planificación de entrenamientos",
+            "Guías de alimentación y material complementario",
+            "Plan de entrenamiento (PDF)",
+            "Plan de alimentación (PDF)",
+            "Guía de adelgazamiento de 10 días (PDF)",
+            "Pago único, sin cuotas mensuales",
+        ],
+        "texto_incluye": (
+            "🔥 *TAPOUT XT — ENTRENÁ DESDE CASA* 🥊\n"
+            "Es un programa de acondicionamiento físico inspirado en las artes marciales, "
+            "que combina ejercicios de fuerza, resistencia, coordinación y cardio.\n\n"
+            "📦 *¿Qué encontrás en el pack?*\n"
+            "🥊 Entrenamientos guiados en video.\n"
+            "💪 Rutinas para trabajar diferentes grupos musculares.\n"
+            "🔥 Ejercicios cardiovasculares y de acondicionamiento físico.\n"
+            "📋 Material de planificación de entrenamientos.\n"
+            "🥗 Guías de alimentación y material complementario.\n"
+            "📲 Todo organizado digitalmente para que puedas seguirlo desde casa.\n\n"
+            "🎁 *Y además te llevás, aparte:*\n"
+            "📋 *Plan de entrenamiento* (PDF)\n"
+            "🥗 *Plan de alimentación* (PDF)\n"
+            "🔥 *Guía de adelgazamiento de 10 días* (PDF)\n\n"
+            "✅ Pago único, sin cuotas mensuales.\n"
+            "💰 *Pack completo: $8.999 ARS.*"
+        ),
+        "mensaje_precio": (
+            "🎬 *Mirá una muestra del programa (rutina de cardio):*\n"
+            "https://drive.google.com/file/d/1Xn3cqmfbXJ7096vOQm_pP6YEkXJZf2t_/view?usp=sharing\n\n"
+            "📲 Tocá *QUIERO* (o escribilo) y te cuento cómo recibís el acceso y te paso el ALIAS 👇"
+        ),
+        "mensaje_entrega": (
+            "✅ *¡Pago confirmado!* 🥊\n\n"
+            "Acá tenés tu *TAPOUT XT*, con todo el material listo para ver:\n"
+            "{link}\n\n"
+            "📂 *Adentro vas a encontrar:*\n"
+            "🎥 Los entrenamientos en video\n"
+            "📁 La carpeta *TAPOUT XT PDF*, con tus 3 extras:\n"
+            "   📋 Plan de entrenamiento\n"
+            "   🥗 Plan de alimentación\n"
+            "   🔥 Guía de adelgazamiento de 10 días\n\n"
+            "¡Gracias por tu compra y a entrenar! 💪🙌"
+        ),
+        "manuales": [],
     },
 }
 
 
-def _teclado_categorias(numero):
-    """Menú principal: el link para hablar personalmente + una fila por
-    categoría."""
-    filas = [
-        [{"text": "📱 Hablar personalmente", "url": f"https://wa.me/{numero}"}],
-    ]
-    for cat_id, categoria in CATEGORIAS_RESPUESTAS.items():
-        filas.append([{"text": categoria["titulo"], "callback_data": f"cat:{cat_id}:{numero}"}])
-    return {"inline_keyboard": filas}
-
-
-def _teclado_subrespuestas(cat_id, numero):
-    """Sub-menú de una categoría puntual, con botón para volver atrás."""
-    filas = [
-        [{"text": "📱 Hablar personalmente", "url": f"https://wa.me/{numero}"}],
-    ]
-    categoria = CATEGORIAS_RESPUESTAS.get(cat_id)
-    if categoria:
-        for opt_id, (titulo_boton, _) in categoria["opciones"].items():
-            filas.append([{"text": titulo_boton, "callback_data": f"resp:{cat_id}:{opt_id}:{numero}"}])
-    filas.append([{"text": "⬅️ Volver", "callback_data": f"back:{numero}"}])
-    return {"inline_keyboard": filas}
-
-
-def _editar_teclado_telegram(chat_id, message_id, teclado):
-    """Cambia los botones de un mensaje de Telegram ya enviado (para
-    navegar entre el menú de categorías y sus sub-opciones)."""
-    if not TELEGRAM_BOT_TOKEN or not chat_id or not message_id:
-        return
-    try:
-        requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageReplyMarkup",
-            json={"chat_id": chat_id, "message_id": message_id, "reply_markup": teclado},
-            timeout=10,
-        )
-    except Exception as e:
-        print("Error editando teclado de Telegram:", e)
-
-
-def enviar_notificacion_telegram(numero, resumen_texto):
-    """Le avisa al dueño del negocio por Telegram que llegó un mensaje nuevo,
-    con un formato prolijo (nombre, número, hora, y el mensaje entre
-    comillas), más los botones de respuesta rápida. Si en vez de tocar un
-    botón responde a ESE mensaje de Telegram (con la función 'responder'),
-    el bot también sabe a qué número de WhatsApp reenviarle esa respuesta
-    (ver /telegram_webhook)."""
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        return  # Telegram no está configurado, no hacemos nada
-    try:
-        nombre = obtener_nombre_contacto(numero)
-        hora = datetime.utcnow().strftime("%H:%M")
-
-        # Si el nombre y el número son distintos, mostramos los dos; si no
-        # hay nombre guardado, mostramos solo el número.
-        if nombre != numero:
-            encabezado = f"👤 <b>{_escapar_html(nombre)}</b>  ·  <code>{_escapar_html(numero)}</code>"
-        else:
-            encabezado = f"👤 <b>{_escapar_html(numero)}</b>"
-
-        texto_formateado = (
-            f"📲 <b>WhatsApp — {_escapar_html(NOMBRE_NEGOCIO)}</b>\n"
-            f"{encabezado}\n"
-            f"🕒 {hora}\n"
-            f"\n"
-            f"<i>“{_escapar_html(resumen_texto)}”</i>\n"
-            f"\n"
-            f"↩️ <i>Respondé a este mensaje para contestarle por WhatsApp, "
-            f"o tocá un botón de respuesta rápida.</i>"
-        )
-
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": texto_formateado,
-            "parse_mode": "HTML",
-            "reply_markup": _teclado_categorias(numero),
-        }
-        resp = requests.post(url, json=payload, timeout=10)
-        if resp.status_code >= 400:
-            print("Error notificando a Telegram:", resp.text)
-            return
-        data = resp.json()
-        telegram_message_id = data.get("result", {}).get("message_id")
-        if telegram_message_id:
-            registrar_mapeo_telegram(telegram_message_id, numero)
-    except Exception as e:
-        print("Error notificando a Telegram:", e)
-
-
-def enviar_notificacion_telegram_comprobante(numero, comprobante_id, clave=None):
-    """Notificación especial cuando llega un comprobante de pago: en vez
-    del menú de categorías normal, incluye un botón para aprobar el pago
-    y mandar la carpeta de manuales al instante, sin pasar por el panel."""
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        return
-    try:
-        nombre = obtener_nombre_contacto(numero)
-        hora = datetime.utcnow().strftime("%H:%M")
-        encabezado = (
-            f"👤 <b>{_escapar_html(nombre)}</b>  ·  <code>{_escapar_html(numero)}</code>"
-            if nombre != numero
-            else f"👤 <b>{_escapar_html(numero)}</b>"
-        )
-        texto_formateado = (
-            f"📎 <b>Comprobante de pago — {_escapar_html(NOMBRE_NEGOCIO)}</b>\n"
-            f"{encabezado}\n"
-            f"🕒 {hora}\n\n"
-            "Mandó un comprobante. Revisalo en el panel, o tocá el botón para "
-            "aprobarlo y mandarle la carpeta al instante.\n\n"
-        )
-        if clave in PRODUCTOS:
-            texto_formateado += f"🛒 Producto: <b>{_escapar_html(PRODUCTOS[clave]['titulo'])}</b>"
-            _p = _producto_para(numero, clave)
-            if promo_hoy_vigente(numero, clave):
-                texto_formateado += f"\n💰 Precio acordado: <b>{_escapar_html(_p['precio'])}</b> (promo de hoy; normal {_escapar_html(PRODUCTOS[clave]['precio'])})"
-            else:
-                texto_formateado += f"\n💰 Precio: <b>{_escapar_html(PRODUCTOS[clave]['precio'])}</b>"
-            botones_aprobar = [[{
-                "text": f"✅ Aprobar y enviar: {(PRODUCTOS[clave].get('titulo_boton') or PRODUCTOS[clave]['titulo'])[:30]}",
-                "callback_data": f"aprobar:{comprobante_id}:{clave}:{numero}",
-            }]]
-            if clave == "pack_gamer_pc":
-                botones_aprobar.append([{
-                    "text": "❌ Rechazar comprobante",
-                    "callback_data": f"rechazar:{comprobante_id}:{clave}:{numero}",
-                }])
-        else:
-            texto_formateado += "⚠️ No sé qué producto eligió. Elegí cuál aprobar según lo que pagó:"
-            botones_aprobar = [
-                [{
-                    "text": f"✅ Aprobar: {(p.get('titulo_boton') or p['titulo'])[:30]}",
-                    "callback_data": f"aprobar:{comprobante_id}:{k}:{numero}",
-                }]
-                for k, p in PRODUCTOS.items()
-            ]
-        teclado = {
-            "inline_keyboard": [
-                [{"text": "📱 Hablar personalmente", "url": f"https://wa.me/{numero}"}],
-            ] + botones_aprobar
-        }
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        resp = requests.post(
-            url,
-            json={
-                "chat_id": TELEGRAM_CHAT_ID,
-                "text": texto_formateado,
-                "parse_mode": "HTML",
-                "reply_markup": teclado,
-            },
-            timeout=10,
-        )
-        if resp.status_code >= 400:
-            print("Error notificando comprobante a Telegram:", resp.text)
-            return
-        data = resp.json()
-        telegram_message_id = data.get("result", {}).get("message_id")
-        if telegram_message_id:
-            registrar_mapeo_telegram(telegram_message_id, numero)
-    except Exception as e:
-        print("Error notificando comprobante a Telegram:", e)
-
-
-def configurar_webhook_telegram():
-    """Le dice a Telegram a qué URL mandar los updates (mensajes que te
-    escriben o respuestas que hacés). Se llama solo al arrancar la app."""
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_WEBHOOK_URL:
-        return
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook"
-        requests.post(url, json={"url": TELEGRAM_WEBHOOK_URL}, timeout=10)
-    except Exception as e:
-        print("Error configurando webhook de Telegram:", e)
-
-
-# =====================================================================
-#  Backup automático de la base de datos por Telegram
-#  ----------------------------------------------------------------
-#  El plan gratuito de Render puede borrar el archivo de la base de datos
-#  en cada redeploy/reinicio. Como respaldo (gratis), le mandamos el
-#  archivo completo por Telegram cada cierta cantidad de horas, así
-#  siempre queda una copia reciente a salvo en tu chat de Telegram.
-# =====================================================================
-BACKUP_INTERVALO_HORAS = float(os.getenv("BACKUP_INTERVALO_HORAS", "24"))
-
-
-def enviar_backup_telegram():
-    """Manda el archivo actual de la base de datos (mensajes.db) a Telegram
-    como documento adjunto."""
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        return
-    if not os.path.exists(DB_PATH):
-        return
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument"
-        fecha_legible = datetime.utcnow().strftime("%d/%m/%Y %H:%M UTC")
-        with open(DB_PATH, "rb") as archivo:
-            resp = requests.post(
-                url,
-                data={
-                    "chat_id": TELEGRAM_CHAT_ID,
-                    "caption": f"🗄️ Backup automático de la base de datos — {fecha_legible}",
-                },
-                files={"document": (os.path.basename(DB_PATH), archivo)},
-                timeout=30,
-            )
-        if resp.status_code >= 400:
-            print("Error mandando backup a Telegram:", resp.text)
-    except Exception as e:
-        print("Error mandando backup a Telegram:", e)
-
-
-def iniciar_backups_automaticos():
-    """Arranca un hilo en segundo plano que manda el backup cada
-    BACKUP_INTERVALO_HORAS horas, para siempre, mientras la app esté viva."""
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        return
-
-    def _loop():
-        while True:
-            time.sleep(BACKUP_INTERVALO_HORAS * 3600)
-            enviar_backup_telegram()
-
-    hilo = threading.Thread(target=_loop, daemon=True)
-    hilo.start()
-
-
-def guardar_mensaje(numero, direccion, texto):
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute(
-        "INSERT INTO mensajes (numero, direccion, texto, fecha) VALUES (?, ?, ?, ?)",
-        (numero, direccion, texto, datetime.utcnow().strftime("%d/%m %H:%M:%S")),
-    )
-    conn.commit()
-    conn.close()
-
-
-def guardar_contacto(numero, nombre):
-    if not nombre:
-        return
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute(
-        """
-        INSERT INTO contactos (numero, nombre) VALUES (?, ?)
-        ON CONFLICT(numero) DO UPDATE SET nombre = excluded.nombre
-        """,
-        (numero, nombre),
-    )
-    conn.commit()
-    conn.close()
-
-
-def activar_modo_ia(numero):
-    """Marca que este número está siendo atendido por la IA (después de tocar
-    'Hablar con asesor'), hasta que un humano le responda desde el panel."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute(
-        """
-        INSERT INTO contactos (numero, nombre, modo_ia) VALUES (?, NULL, 1)
-        ON CONFLICT(numero) DO UPDATE SET modo_ia = 1
-        """,
-        (numero,),
-    )
-    conn.commit()
-    conn.close()
-
-
-def desactivar_modo_ia(numero):
-    """Saca a este número del modo IA (por ejemplo, cuando un humano le
-    responde manualmente desde el panel)."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("UPDATE contactos SET modo_ia = 0 WHERE numero = ?", (numero,))
-    conn.commit()
-    conn.close()
-
-
-def esta_en_modo_ia(numero):
-    conn = sqlite3.connect(DB_PATH)
-    fila = conn.execute("SELECT modo_ia FROM contactos WHERE numero = ?", (numero,)).fetchone()
-    conn.close()
-    return bool(fila and fila[0] == 1)
-
-
-def guardar_comprobante(numero, media_id, mime_type):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.execute(
-        "INSERT INTO comprobantes (numero, media_id, mime_type, estado, fecha) VALUES (?, ?, ?, 'pendiente', ?)",
-        (numero, media_id, mime_type, datetime.utcnow().strftime("%d/%m %H:%M:%S")),
-    )
-    conn.commit()
-    comprobante_id = cursor.lastrowid
-    conn.close()
-    return comprobante_id
-
-
-def obtener_comprobantes_pendientes_por_numero():
-    conn = sqlite3.connect(DB_PATH)
-    filas = conn.execute(
-        "SELECT numero, id, media_id, mime_type, fecha FROM comprobantes WHERE estado = 'pendiente'"
-    ).fetchall()
-    conn.close()
-    resultado = {}
-    for numero, comp_id, media_id, mime_type, fecha in filas:
-        resultado[numero] = {"id": comp_id, "media_id": media_id, "mime_type": mime_type, "fecha": fecha}
-    return resultado
-
-
-def marcar_comprobante_aprobado(comprobante_id):
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("UPDATE comprobantes SET estado = 'aprobado' WHERE id = ?", (comprobante_id,))
-    conn.commit()
-    conn.close()
-
-
-init_db()
-configurar_webhook_telegram()
-iniciar_backups_automaticos()
-
-
-# =====================================================================
-#  Webhook: verificación (Meta la pide al vincular)
-# =====================================================================
-@app.route("/webhook", methods=["GET"])
-def verify_webhook():
-    mode = request.args.get("hub.mode")
-    token = request.args.get("hub.verify_token")
-    challenge = request.args.get("hub.challenge")
-    if mode == "subscribe" and token == VERIFY_TOKEN:
-        return challenge, 200
-    return "Verification failed", 403
-
-
-def verificar_firma_meta(request_data_raw, firma_header):
-    # Si no configuraste APP_SECRET, no valida firma (queda como estaba antes).
-    if not APP_SECRET:
-        return True
-    if not firma_header or not firma_header.startswith("sha256="):
-        return False
-    firma_recibida = firma_header.split("sha256=", 1)[1]
-    firma_calculada = hmac.new(
-        APP_SECRET.encode("utf-8"), request_data_raw, hashlib.sha256
-    ).hexdigest()
-    return hmac.compare_digest(firma_recibida, firma_calculada)
-
-
-# =====================================================================
-#  Webhook: recepción de mensajes
-# =====================================================================
-@app.route("/webhook", methods=["POST"])
-def receive_message():
-    aplicar_promos()
-    firma_header = request.headers.get("X-Hub-Signature-256")
-    if not verificar_firma_meta(request.get_data(), firma_header):
-        return "Invalid signature", 403
-
-    data = request.json
-    try:
-        value = data["entry"][0]["changes"][0]["value"]
-        if "messages" not in value:
-            return jsonify({"status": "ignored"}), 200
-
-        for contacto in value.get("contacts", []):
-            nombre = contacto.get("profile", {}).get("name")
-            numero_contacto = contacto.get("wa_id")
-            if numero_contacto:
-                guardar_contacto(numero_contacto, nombre)
-
-        message_data = value["messages"][0]
-        from_number = message_data["from"]
-        tipo = message_data.get("type")
-
-        # Meta a veces reenvía el mismo mensaje más de una vez (por ejemplo si
-        # el servidor tardó en responder). Si ya procesamos este mensaje
-        # (mismo wamid), lo ignoramos para no contestar duplicado.
-        message_id = message_data.get("id")
-        if ya_fue_procesado(message_id):
-            return jsonify({"status": "duplicado_ignorado"}), 200
-
-        if tipo == "text":
-            msg_body = message_data["text"]["body"].strip()
-            guardar_mensaje(from_number, "entrante", msg_body)
-
-            # Si este cliente está respondiendo el cuestionario de un
-            # producto a pedido (ej: canción), el mensaje es una respuesta:
-            # no lo tratamos como consulta común ni lo notificamos uno por uno.
-            if not message_data.get("referral") and procesar_respuesta_cuestionario(from_number, msg_body):
-                return jsonify({"status": "cuestionario"}), 200
-
-            # A Telegram solo llegan los mensajes que importan: los de alguien que ya pidió
-            # hablar con un asesor. Las preguntas sueltas ("cuánto?", "qué incluye?") las
-            # contesta el bot solo y quedan guardadas en el panel.
-            if TELEGRAM_AVISAR_TODO or esta_en_modo_ia(from_number):
-                enviar_notificacion_telegram(from_number, msg_body)
-
-            referral = message_data.get("referral")
-            if referral:
-                # La persona llegó tocando un anuncio de Facebook/Instagram
-                # (Click to WhatsApp). Meta manda este dato en 'referral' sin
-                # importar qué haya escrito, así que respondemos automático
-                # sí o sí, independientemente de las palabras activadoras.
-                manejar_entrada_desde_ads(from_number, referral, msg_body.lower())
-            else:
-                manejar_texto(from_number, msg_body.lower())
-
-        elif tipo == "interactive":
-            interactive_data = message_data["interactive"]
-            opcion_id = None
-            if interactive_data.get("type") == "button_reply":
-                opcion_id = interactive_data["button_reply"]["id"]
-            elif interactive_data.get("type") == "list_reply":
-                opcion_id = interactive_data["list_reply"]["id"]
-
-            if opcion_id:
-                guardar_mensaje(from_number, "entrante", f"[Opción elegida] {opcion_id}")
-                if TELEGRAM_AVISAR_TODO:
-                    enviar_notificacion_telegram(from_number, f"👆 Eligió: {opcion_id}")
-                manejar_boton(from_number, opcion_id)
-
-        elif tipo in ("image", "document"):
-            media_obj = message_data.get(tipo, {})
-            media_id = media_obj.get("id")
-            mime_type = media_obj.get("mime_type", "")
-            if media_id and esperando_captura(from_number):
-                # Ya compró y le pedimos el comentario: esta imagen es la captura, NO un comprobante.
-                limpiar_esperando_captura(from_number)
-                guardar_comprobante(from_number, media_id, mime_type)
-                guardar_mensaje(from_number, "entrante", "📸 Captura de su comentario")
-                enviar_notificacion_telegram(
-                    from_number,
-                    "📸 Mandó la captura de su comentario (no es un pago). Está en el panel.",
-                )
-                enviar_mensaje_texto(
-                    from_number,
-                    "¡Muchas gracias por tu comentario! 🙏 Ya lo recibí. "
-                    "Disfrutá tu regalo y mucho éxito con tu negocio. 🎁",
-                )
-            elif media_id:
-                comprobante_id = guardar_comprobante(from_number, media_id, mime_type)
-                cancelar_recordatorio(from_number)
-                guardar_mensaje(
-                    from_number, "entrante", "📎 Comprobante recibido (pendiente de aprobación)"
-                )
-                # Usamos el producto que realmente le mostramos a este
-                # cliente (no siempre "kit_maestro"), para que el botón de
-                # aprobar en Telegram mande el archivo correcto.
-                clave_producto_actual = PRODUCTO_ACTUAL.get(from_number)  # None si no sabemos cuál es
-                enviar_notificacion_telegram_comprobante(from_number, comprobante_id, clave_producto_actual)
-                producto_actual = PRODUCTOS.get(clave_producto_actual, {})
-                texto_cantidad = _texto_entrega(producto_actual) if producto_actual else "tu compra"
-                enviar_mensaje_texto(
-                    from_number,
-                    "¡Recibimos tu comprobante! 📎 En breve lo revisamos y te enviamos "
-                    f"{texto_cantidad}. Gracias por tu paciencia.",
-                )
-
-    except Exception as e:
-        print("Error procesando mensaje:", e)
-
-    return jsonify({"status": "success"}), 200
-
-
-@app.route("/telegram_webhook", methods=["POST"])
-def telegram_webhook():
-    aplicar_promos()
-    """Recibe las respuestas que mandás por Telegram. Si le respondiste
-    ('Reply') a una notificación de un mensaje de WhatsApp, reenvía tu texto
-    directo a ese cliente por WhatsApp."""
-    try:
-        data = request.json or {}
-
-        # --- Botones (llegan como "callback_query", no como un mensaje
-        #     normal). Pueden ser: "cat:..." (entrar a una categoría),
-        #     "back:..." (volver al menú principal), o "resp:..." (mandar
-        #     la respuesta puntual elegida). ---
-        callback = data.get("callback_query")
-        if callback:
-            callback_id = callback.get("id")
-            callback_data = callback.get("data", "")
-            mensaje_cb = callback.get("message", {})
-            chat_id_cb = mensaje_cb.get("chat", {}).get("id")
-            message_id_cb = mensaje_cb.get("message_id")
-
-            partes = callback_data.split(":")
-            accion_cb = partes[0] if partes else ""
-            aviso_popup = "OK"
-
-            if accion_cb == "cat" and len(partes) == 3:
-                _, cat_id, numero = partes
-                _editar_teclado_telegram(chat_id_cb, message_id_cb, _teclado_subrespuestas(cat_id, numero))
-                aviso_popup = "Elegí una opción 👇"
-
-            elif accion_cb == "back" and len(partes) == 2:
-                _, numero = partes
-                _editar_teclado_telegram(chat_id_cb, message_id_cb, _teclado_categorias(numero))
-                aviso_popup = "Volviendo al menú"
-
-            elif accion_cb == "resp" and len(partes) == 4:
-                _, cat_id, opt_id, numero = partes
-                categoria = CATEGORIAS_RESPUESTAS.get(cat_id, {})
-                opcion = categoria.get("opciones", {}).get(opt_id)
-                if opcion:
-                    _, texto_a_enviar = opcion
-                    desactivar_modo_ia(numero)
-                    cancelar_recordatorio(numero)
-                    enviar_mensaje_texto(numero, texto_a_enviar)
-                    aviso_popup = "Enviado ✅"
-                    # Volvemos al menú principal después de responder.
-                    _editar_teclado_telegram(chat_id_cb, message_id_cb, _teclado_categorias(numero))
-                else:
-                    aviso_popup = "No se pudo enviar"
-
-            elif accion_cb == "rechazar" and len(partes) == 4 and partes[2] == "pack_gamer_pc":
-                _, comprobante_id, clave, numero = partes
-                conn = sqlite3.connect(DB_PATH)
-                try:
-                    cursor = conn.execute(
-                        "UPDATE comprobantes SET estado = 'rechazado' WHERE id = ? AND numero = ? AND estado = 'pendiente'",
-                        (comprobante_id, numero))
-                    conn.commit()
-                    cambiado = cursor.rowcount > 0
-                finally:
-                    conn.close()
-                if cambiado:
-                    enviar_mensaje_texto(numero,
-                        "❌ No pudimos confirmar tu pago del *PACK GAMER*. "
-                        "Por favor revisá los datos de la transferencia y reenviá el comprobante por este chat. 🙌")
-                    _editar_teclado_telegram(chat_id_cb, message_id_cb, {
-                        "inline_keyboard": [[{"text": "❌ Comprobante rechazado", "callback_data": f"back:{numero}"}]]})
-                    aviso_popup = "Comprobante rechazado"
-                else:
-                    aviso_popup = "Este comprobante ya fue procesado"
-
-            elif accion_cb == "aprobar" and len(partes) == 4:
-                _, comprobante_id, clave, numero = partes
-                if clave == "pack_gamer_pc":
-                    conn = sqlite3.connect(DB_PATH)
-                    try:
-                        cursor = conn.execute(
-                            "UPDATE comprobantes SET estado = 'aprobado' WHERE id = ? AND numero = ? AND estado = 'pendiente'",
-                            (comprobante_id, numero))
-                        conn.commit()
-                        cambiado = cursor.rowcount > 0
-                    finally:
-                        conn.close()
-                    if not cambiado:
-                        aviso_popup = "Este comprobante ya fue procesado"
-                        # No entregar nuevamente un pago ya aprobado o rechazado.
-                        if TELEGRAM_BOT_TOKEN and callback_id:
-                            requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery",
-                                json={"callback_query_id": callback_id, "text": aviso_popup}, timeout=10)
-                        return jsonify({"status": "already_processed"}), 200
-                else:
-                    marcar_comprobante_aprobado(comprobante_id)
-                desactivar_modo_ia(numero)
-                cancelar_recordatorio(numero)
-                enviar_manuales_completos(numero, clave)
-                aviso_popup = "✅ Aprobado, carpeta enviada"
-                # Reemplazamos el botón de aprobar por un aviso de que ya se procesó.
-                _editar_teclado_telegram(
-                    chat_id_cb,
-                    message_id_cb,
-                    {
-                        "inline_keyboard": [
-                            [{"text": "📱 Hablar personalmente", "url": f"https://wa.me/{numero}"}],
-                            [{"text": "✅ Ya aprobado", "callback_data": f"back:{numero}"}],
-                        ]
-                    },
-                )
-
-            # Hay que "contestarle" a Telegram el callback, si no el botón
-            # se queda cargando (girando) en la app del usuario.
-            if TELEGRAM_BOT_TOKEN and callback_id:
-                requests.post(
-                    f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery",
-                    json={"callback_query_id": callback_id, "text": aviso_popup},
-                    timeout=10,
-                )
-            return jsonify({"status": "callback_procesado"}), 200
-
-        mensaje_telegram = data.get("message") or data.get("edited_message")
-        if not mensaje_telegram:
-            return jsonify({"status": "ignorado"}), 200
-
-        texto_admin = (mensaje_telegram.get("text") or "").strip()
-        respondido_a = mensaje_telegram.get("reply_to_message")
-
-        # Comando manual: escribiendo /backup (sin responder a nada en
-        # particular), mandamos el archivo de la base de datos al toque.
-        if texto_admin.lower() == "/backup":
-            enviar_backup_telegram()
-            return jsonify({"status": "backup_enviado"}), 200
-
-        if not texto_admin or not respondido_a:
-            return jsonify({"status": "ignorado"}), 200
-
-        telegram_message_id = respondido_a.get("message_id")
-        numero = obtener_numero_por_mensaje_telegram(telegram_message_id)
-
-        if not numero:
-            # Respaldo: si la base de datos perdió esta referencia (por
-            # ejemplo, si el servidor se reinició entre que llegó la
-            # notificación y que la respondiste), tratamos de sacar el
-            # número directo del texto del mensaje original al que
-            # respondiste (ahí siempre aparece el número de teléfono).
-            texto_original = respondido_a.get("text", "")
-            match = re.search(r"\d{10,15}", texto_original)
-            if match:
-                numero = match.group(0)
-
-        if numero:
-            desactivar_modo_ia(numero)  # ya lo está atendiendo un humano
-            cancelar_recordatorio(numero)
-            enviar_mensaje_texto(numero, texto_admin)
-        elif TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
-            # No pudimos identificar a qué cliente corresponde esta respuesta.
-            requests.post(
-                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-                json={
-                    "chat_id": TELEGRAM_CHAT_ID,
-                    "text": "⚠️ No pude identificar a qué cliente corresponde esa respuesta. "
-                    "Asegurate de usar 'Responder' sobre la notificación original.",
-                },
-                timeout=10,
-            )
-    except Exception as e:
-        print("Error procesando webhook de Telegram:", e)
-
-    return jsonify({"status": "ok"}), 200
-
-
-@app.route("/webhook/mercadopago", methods=["POST", "GET"])
-def mercadopago_webhook():
-    aplicar_promos()
-    """Mercado Pago avisa acá cada vez que hay novedades de un pago. Si el
-    pago está aprobado y todavía no lo procesamos, le mandamos los
-    manuales al cliente automáticamente, sin que nadie tenga que aprobar
-    nada a mano."""
-    if not MP_ACCESS_TOKEN:
-        return jsonify({"status": "mercadopago_no_configurado"}), 200
-
-    # Mercado Pago puede mandar el aviso como JSON en el body, o como query
-    # params, según cómo esté configurada la cuenta. Contemplamos las dos.
-    data = request.get_json(silent=True) or {}
-    payment_id = (data.get("data") or {}).get("id") or request.args.get("data.id") or request.args.get("id")
-
-    if not payment_id:
-        return jsonify({"status": "ignorado"}), 200
-
-    try:
-        resp = requests.get(
-            f"https://api.mercadopago.com/v1/payments/{payment_id}",
-            headers={"Authorization": f"Bearer {MP_ACCESS_TOKEN}"},
-            timeout=15,
-        )
-        pago = resp.json()
-    except Exception as e:
-        print("Error consultando el pago en Mercado Pago:", repr(e))
-        return jsonify({"status": "error"}), 200
-
-    if pago.get("status") == "approved" and not pago_mp_ya_procesado(payment_id):
-        external_reference = pago.get("external_reference", "")
-        if "|" in external_reference:
-            numero, clave = external_reference.split("|", 1)
-            confirmar_pago_automatico_mp(numero, clave)
-
-    return jsonify({"status": "ok"}), 200
-
-
-# =====================================================================
-#  Lógica del Bot (Kit Maestro)
-# =====================================================================
-def _num(i):
-    """Número en emoji para 1-9, y '10.' '11.'... desde el 10 (los emojis de
-    dos cifras se ven mal en WhatsApp)."""
-    return f"{i}️⃣" if i < 10 else f"{i}."
-
-
-def _texto_cantidad_manuales(producto):
-    """Devuelve 'el manual' si el pack tiene uno solo, o 'los N manuales'
-    si tiene varios (para que los mensajes se lean bien en los dos casos)."""
-    cantidad = len(producto.get("manuales", []))
-    return "el manual" if cantidad == 1 else f"los {cantidad} manuales"
-
-
-def _texto_entrega(producto):
-    """Devuelve la frase correcta para 'te mando ___ al instante', según el
-    tipo de producto: cuenta (entrega manual), manuales/PDFs con cantidad,
-    o un pack genérico (que_incluye) sin manuales individuales."""
-    if producto.get("texto_entrega"):
-        return producto["texto_entrega"]
-    if producto.get("entrega_manual"):
-        return "tus datos de acceso"
-    cantidad = len(producto.get("manuales", []))
-    if cantidad > 0:
-        return _texto_cantidad_manuales(producto)
-    return "todo el contenido"
-
-
-def _normalizar(texto):
-    """Pasa a minúsculas y saca tildes, para que 'información' e 'informacion' matcheen igual."""
-    texto = texto.strip().lower()
-    return "".join(
-        c for c in unicodedata.normalize("NFD", texto) if unicodedata.category(c) != "Mn"
-    )
-
-
-def manejar_entrada_desde_ads(from_number, referral, msg_body_lower=""):
-    """Se dispara automáticamente cuando alguien te escribe tocando un anuncio
-    de Facebook o Instagram (Click to WhatsApp), sin importar qué haya
-    escrito. 'referral' trae datos del anuncio: headline, source_type
-    ('ad' o 'post'), source_url, media_type, etc.
-
-    A diferencia del saludo genérico, acá NO mandamos la lista para elegir
-    pack: la persona ya clickeó un anuncio (o escribió el texto pre-cargado
-    de un anuncio), así que va directo a la ficha del producto correspondiente.
-
-    Para saber CUÁL producto, primero miramos el texto del propio mensaje
-    (el que escribió/mandó la persona) y también el headline/body que venga
-    en 'referral'. Si ninguno matchea ningún producto puntual, usamos
-    "kit_maestro" como default (útil mientras solo tengas un pack).
-    """
-    titulo_anuncio = referral.get("headline") or referral.get("source_type") or "anuncio"
-    guardar_mensaje(from_number, "entrante", f"[Entró desde Facebook/Instagram: {titulo_anuncio}]")
-
-    texto_completo = " ".join(
-        [
-            msg_body_lower or "",
-            referral.get("headline", "") or "",
-            referral.get("body", "") or "",
-        ]
-    )
-    texto_normalizado = _normalizar(texto_completo)
-
-    clave = detectar_producto_por_texto(texto_normalizado) or "kit_maestro"
-    enviar_ficha_producto(from_number, clave)
-
-
-def _con_nota_respaldo(texto_ia):
-    """La atención se mantiene por el mismo chat, sin exponer teléfonos privados."""
-    return texto_ia
-
-
-def manejar_texto(from_number, msg_body_lower):
-    marcar_interaccion(from_number)
-    msg_normalizado = _normalizar(msg_body_lower)
-
-    # 0) ¿El mensaje menciona un producto puntual (ej: "arquitectura y
-    #    construcción")? Si es así, vamos DIRECTO a la ficha de ese
-    #    producto, sin pasar por la lista general NI por el modo IA.
-    #    Esto tiene prioridad siempre, aunque el número haya quedado en
-    #    "modo IA" por haber tocado antes 'Hablar con asesor'.
-    clave_producto = detectar_producto_por_texto(msg_normalizado)
-    if clave_producto:
-        desactivar_modo_ia(from_number)  # ya no hace falta que la IA lo atienda
-        enviar_ficha_producto(from_number, clave_producto)
-        return
-
-    # 1) Si no menciona ningún producto puntual, pero sí un saludo genérico
-    #    ("hola", "informacion", etc.):
-    #    - Si hay UN SOLO producto cargado, vamos directo a su ficha (sin
-    #      pasar por ningún menú/lista, para no obligar a tocar nada).
-    #    - Si hay VARIOS productos, ahí sí mandamos el menú para que elija.
-    #    También tiene prioridad sobre el modo IA.
-    if any(palabra in msg_normalizado for palabra in PALABRAS_ACTIVADORAS):
-        desactivar_modo_ia(from_number)
-        if len(PRODUCTOS) == 1:
-            enviar_ficha_producto(from_number, next(iter(PRODUCTOS)))
-        else:
-            enviar_bienvenida_simple(from_number)
-        return
-
-    # 1.5) Red de contención para gente que no toca los botones y escribe
-    #      directamente lo que quiere ("quiero comprar", "que incluye",
-    #      "hablar con alguien"). Si matchea alguna de estas frases, hacemos
-    #      LO MISMO que si hubiera tocado el botón correspondiente, sobre el
-    #      ÚLTIMO producto que le mostramos a este número (o el primero
-    #      configurado, si todavía no le mostramos ninguno).
-    if PRODUCTOS:
-        clave_default = PRODUCTO_ACTUAL.get(from_number, next(iter(PRODUCTOS)))
-        # "QUIERO" suelto (o "lo quiero", "si quiero") = pide los datos de pago del
-        # producto que está viendo. Tiene que ser el mensaje entero: si dice
-        # "quiero información" no entra acá.
-        if msg_normalizado.strip(" !¡.?¿") in ("quiero", "lo quiero", "si quiero", "si lo quiero", "yo quiero", "quiero ya"):
-            manejar_boton(from_number, f"comprar_pack:{clave_default}")
-            return
-        if any(frase in msg_normalizado for frase in FRASES_COMPRAR):
-            # Preguntas de precio ("cuánto sale", "el precio") reciben los datos de pago pero NO
-            # te avisan por Telegram: el aviso es solo para quien lo pide en firme.
-            pedido_firme = any(
-                p in msg_normalizado
-                for p in ("alias", "quiero pagar", "quiero comprar", "quiero adquirir", "como lo compro")
-            )
-            manejar_boton(from_number, f"comprar_pack:{clave_default}", avisar=pedido_firme)
-            return
-        if any(frase in msg_normalizado for frase in FRASES_VER_QUE_INCLUYE):
-            manejar_boton(from_number, f"ver_resena:{clave_default}")
-            return
-        if any(frase in msg_normalizado for frase in FRASES_ASESOR):
-            manejar_boton(from_number, "hablar_vendedor")
-            return
-
-    # 2) Si este número está en "modo IA" (tocó antes 'Hablar con asesor' y
-    #    todavía ningún humano le respondió desde el panel), y el mensaje no
-    #    coincidió con nada de lo anterior, dejamos que la IA le conteste.
-    if esta_en_modo_ia(from_number):
-        respuesta_ia = generar_respuesta_ia(msg_body_lower)
-        enviar_mensaje_texto(from_number, _con_nota_respaldo(respuesta_ia))
-        return
-
-    # 3) No coincidió con nada conocido y no está en modo IA.
-    enviar_mensaje_texto(
-        from_number,
-        f"No entendí tu mensaje 🤔. Escribí *{PALABRA_CLAVE_MENU}* para ver nuestros packs disponibles.",
-    )
-
-
-def _enviar_flujo_compra(numero, clave):
-    """Manda toda la secuencia de compra (imagen + 3 mensajes + botón), con
-    una pausa corta entre cada uno para que no se sienta tan robótico/
-    instantáneo. Corre en un hilo aparte para no atrasar la respuesta del
-    webhook a Meta."""
-    producto = _producto_para(numero, clave)
-    if not producto:
-        return
-
-    PAUSA_ENTRE_MENSAJES = 5  # segundos
-
-    # La imagen del banner de oferta va PRIMERO que todo (sin caption: el
-    # texto va aparte, así si la imagen falla, los mensajes igual llegan).
-    imagen_oferta = producto.get("imagen_oferta") or producto.get("imagen")
-    if imagen_oferta:
-        enviar_imagen(numero, imagen_oferta)
-        time.sleep(PAUSA_ENTRE_MENSAJES)
-
-    # Mensaje 1: la oferta con la urgencia de 1 hora (precio de oferta,
-    # distinto del precio "normal" que se muestra en la ficha inicial).
-    precio_oferta = producto.get("precio_oferta", producto["precio"])
-    cantidad_m1 = len(producto.get("manuales", []))
-    if cantidad_m1 > 0:
-        tecnico_s = "técnico" if cantidad_m1 == 1 else "técnicos"
-        texto_intro_oferta = f"con {_texto_cantidad_manuales(producto)} {tecnico_s}, "
-    else:
-        texto_intro_oferta = ""
-    enviar_mensaje_texto(
-        numero,
-        "🔥 *Todo esto es tuyo por solo "
-        f"{precio_oferta}* 🔥\n\n"
-        f"El *{producto['titulo']}* completo, {texto_intro_oferta}"
-        "con acceso inmediato después de tu pago.\n\n"
-        "Te dejo el detalle de todo lo que te llevás 👇",
-    )
-    time.sleep(PAUSA_ENTRE_MENSAJES)
-
-    # Mensaje 2: lo que incluye. Usa "manuales" (+ "regalo_sorpresa" si
-    # existe) o "que_incluye", según cómo esté armado el producto — mismo
-    # criterio que en la ficha inicial (_enviar_secuencia_ficha).
-    if producto.get("manuales"):
-        lineas_libros = [f"📚 *Esto es lo que te llevás:*\n"]
-        for i, manual in enumerate(producto["manuales"], start=1):
-            lineas_libros.append(f"{_num(i)} {manual['titulo']} ({manual['autor']})")
-        regalos_resumen = list(producto.get("regalo_sorpresa", []))
-        bonus_resumen = _bonus_activo(producto)
-        if bonus_resumen:
-            regalos_resumen.append(bonus_resumen["titulo"])
-        if regalos_resumen:
-            lineas_libros.append("\n🎁 *Y de regalo, además:*")
-            for regalo in regalos_resumen:
-                lineas_libros.append(f"🎁 {regalo}")
-        lineas_libros.append(f"\n💰 *Todo por {precio_oferta}*")
-        lineas_libros.append("⚡ Es el precio vigente ahora y puede subir sin aviso.")
-        enviar_mensaje_texto(numero, "\n".join(lineas_libros))
-        time.sleep(PAUSA_ENTRE_MENSAJES)
-    elif producto.get("que_incluye"):
-        lineas_libros = [f"✨ *¿Qué incluye?*\n"]
-        for item in producto["que_incluye"]:
-            lineas_libros.append(f"✅ {item}")
-        enviar_mensaje_texto(numero, "\n".join(lineas_libros))
-        time.sleep(PAUSA_ENTRE_MENSAJES)
-
-    # Mensaje 3: los datos para transferir.
-    texto_entrega = _texto_entrega(producto)
-    enviar_mensaje_texto(
-        numero,
-        "💸 *Podés abonar por transferencia o Lemon:*\n\n"
-        f"👉 *Alias:* `{DATOS_TRANSFERENCIA['alias']}`\n"
-        f"👉 *CVU:* `{DATOS_TRANSFERENCIA['cvu']}`\n"
-        f"👉 *Lemontag:* `{DATOS_TRANSFERENCIA['lemontag']}`\n"
-        f"👤 *Titular:* {DATOS_TRANSFERENCIA['titular']}\n\n"
-        "📩 Una vez realizado el pago, enviame el comprobante (foto o PDF) acá mismo "
-        f"en el chat y te mando {texto_entrega} al instante.",
-    )
-    time.sleep(PAUSA_ENTRE_MENSAJES)
-
-    # Botón para que el cliente avise que ya pagó.
-    payload_ya_pague = {
-        "messaging_product": "whatsapp",
-        "to": numero,
-        "type": "interactive",
-        "interactive": {
-            "type": "button",
-            "body": {"text": "Cuando termines de pagar, tocá el botón 👇"},
-            "action": {
-                "buttons": [
-                    {"type": "reply", "reply": {"id": f"ya_pague:{clave}", "title": "✅ Ya pagué"}},
-                ]
-            },
-        },
-    }
-    _enviar_interactivo(numero, payload_ya_pague, "Cuando termines de pagar, tocá el botón 👇")
-
-
-def manejar_boton(from_number, opcion_id, avisar=True):
-    # Si tocó cualquier botón, ya no le mandamos el recordatorio automático
-    # de "¿seguís pensando en comprar?" — está interactuando activamente.
-    marcar_interaccion(from_number)
-    cancelar_recordatorio(from_number)
-
-    # Los ids vienen con el formato "accion:clave_producto" (ej: "ver_resena:kit_maestro").
-    # "hablar_vendedor" no tiene clave porque no depende de un producto puntual.
-    accion, _, clave = opcion_id.partition(":")
-    if clave in PRODUCTOS:
-        PRODUCTO_ACTUAL[from_number] = clave  # recordamos qué producto está mirando/comprando
-
-    if accion == "ver_pack" and clave in PRODUCTOS:
-        enviar_ficha_producto(from_number, clave)
-
-    elif accion == "gamer_lista" and clave == "pack_gamer_pc":
-        juegos = PRODUCTOS[clave]["catalogo_juegos"]
-        # Dividido en dos mensajes para no superar el límite de texto de WhatsApp.
-        for inicio in range(0, len(juegos), 39):
-            parte = juegos[inicio:inicio + 39]
-            titulo = "🎮 *PACK GAMER — CATÁLOGO COMPLETO*" if inicio == 0 else "🎮 *PACK GAMER — CONTINUACIÓN*"
-            enviar_mensaje_texto(from_number, titulo + "\n\n" + "\n".join(
-                f"{inicio + i + 1}. {nombre}" for i, nombre in enumerate(parte)))
-        _enviar_botones_gamer(from_number, clave, "compra")
-
-    elif accion == "gamer_requisitos" and clave == "pack_gamer_pc":
-        enviar_mensaje_texto(from_number, PRODUCTOS[clave]["requisitos_pc"])
-        _enviar_botones_gamer(from_number, clave, "compra")
-
-    elif accion == "ver_resena" and clave in PRODUCTOS:
-        enviar_mensaje_texto(from_number, _texto_detalle_manuales(clave))
-        enviar_botones_pack(from_number, clave, incluir_ver=False)
-
-    elif accion == "comprar_pack" and clave in PRODUCTOS:
-        if avisar and TELEGRAM_AVISAR_PIDE_ALIAS and not TELEGRAM_AVISAR_TODO:
-            ahora = time.time()
-            if ahora - _AVISO_ALIAS_ULTIMO.get((from_number, clave), 0) > 6 * 3600:
-                _AVISO_ALIAS_ULTIMO[(from_number, clave)] = ahora
-                enviar_notificacion_telegram(
-                    from_number,
-                    f"🔥 Pidió los datos de pago: {PRODUCTOS[clave]['titulo']} ({_producto_para(from_number, clave)['precio']})",
-                )
-        limpiar_esperando_captura(from_number)  # quiere comprar de nuevo: su próxima imagen sí es un comprobante
-        producto = _producto_para(from_number, clave)
-
-        # Si Mercado Pago está configurado, generamos un link de pago único
-        # para este cliente. Es una opción ADEMÁS de la transferencia, no en
-        # vez de ella: si paga por acá, el bot le manda los manuales solo,
-        # sin que nadie tenga que aprobar nada a mano.
-        link_mp = crear_preferencia_pago(from_number, clave)
-        seccion_mp = ""
-        cierre_mp = ""
-        if link_mp:
-            seccion_mp = (
-                "💳 *Pago con Mercado Pago (acreditación automática):*\n"
-                f"{link_mp}\n\n"
-            )
-            cierre_mp = " Si pagás por Mercado Pago, te los mando automático apenas se acredite. ✅"
-
-        # Mensaje directo y simple con los datos de pago (precio normal),
-        # sin imagen. La secuencia con imagen/banner queda reservada para
-        # el recordatorio automático de 1 hora, si la persona no compra en
-        # ese tiempo (ver programar_recordatorio_compra).
-        texto_cantidad = _texto_entrega(producto)
-        enviar_mensaje_texto(
-            from_number,
-            "🎉 ¡Excelente decisión! Podés abonar por "
-            + ("cualquiera de estas dos opciones" if link_mp else "transferencia o Lemon")
-            + ":\n\n"
-            f"{seccion_mp}"
-            "👉 *Transferencia o Lemon:*\n"
-            f"*Alias:* `{DATOS_TRANSFERENCIA['alias']}`\n"
-            f"*CVU:* `{DATOS_TRANSFERENCIA['cvu']}`\n"
-            f"*Lemontag:* `{DATOS_TRANSFERENCIA['lemontag']}`\n"
-            f"*Titular:* {DATOS_TRANSFERENCIA['titular']}\n\n"
-            f"💰 *Total:* {producto['precio']}\n\n"
-            "📩 Si pagás por transferencia, enviame el comprobante (foto o PDF) acá mismo "
-            f"y te mando {texto_cantidad} al instante."
-            f"{cierre_mp}\n\n"
-            "📌 Si tenés algún inconveniente, escribinos por este mismo chat.",
-        )
-        payload_ya_pague = {
-            "messaging_product": "whatsapp",
-            "to": from_number,
-            "type": "interactive",
-            "interactive": {
-                "type": "button",
-                "body": {"text": "Cuando termines de pagar, tocá el botón 👇"},
-                "action": {
-                    "buttons": [
-                        {"type": "reply", "reply": {"id": f"ya_pague:{clave}", "title": "✅ Ya pagué"}},
-                    ]
-                },
-            },
-        }
-        _enviar_interactivo(from_number, payload_ya_pague, "Cuando termines de pagar, tocá el botón 👇")
-
-        # Activamos el recordatorio automático (3 min y 1 hora) también acá,
-        # para cuando alguien pide directamente el ALIAS (sin pasar antes
-        # por la ficha del producto) y después no llega a pagar.
-        programar_recordatorio_compra(from_number, clave)
-
-    elif accion == "ya_pague" and clave in PRODUCTOS:
-        enviar_mensaje_texto(
-            from_number,
-            "📎 ¡Genial! Para confirmar tu compra, enviame ahora mismo la *foto o PDF* del "
-            "comprobante de pago acá mismo en el chat. En cuanto lo recibamos, te mandamos "
-            "todo el material. 🙌",
-        )
-
-    elif accion == "ver_lista":
-        enviar_menu_productos(from_number)
-
-    elif accion == "hablar_vendedor":
-        activar_modo_ia(from_number)
-        enviar_notificacion_telegram(from_number, "🙋 Pidió hablar con un asesor. Desde ahora te llegan todos sus mensajes.")
-        respuesta_ia = generar_respuesta_ia(
-            "El cliente tocó el botón 'Hablar con asesor' porque tiene una duda. "
-            "Saludalo, decile que en breve un asesor humano lo va a atender, y "
-            "preguntale en qué le podés ayudar mientras tanto."
-        )
-        enviar_mensaje_texto(from_number, _con_nota_respaldo(respuesta_ia))
-    else:
-        enviar_menu_productos(from_number)
-
-
-def enviar_bienvenida_simple(to):
-    """Bienvenida sin presentar productos: solo un saludo y un botón. La lista
-    aparece cuando la persona toca el botón."""
-    texto_bienvenida = MENSAJE_BIENVENIDA_SIMPLE.replace("{nombre}", _nombre_saludo(to))
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "type": "interactive",
-        "interactive": {
-            "type": "button",
-            "body": {"text": texto_bienvenida},
-            "action": {
-                "buttons": [
-                    {"type": "reply", "reply": {"id": "ver_lista", "title": TEXTO_BOTON_LISTA[:20]}},
-                ]
-            },
-        },
-    }
-    _enviar_interactivo(to, payload, texto_bienvenida)
-
-
-def enviar_menu_productos(to):
-    """Menú principal. Con hasta 3 productos manda UN solo mensaje: un texto
-    corto con cada producto (nombre, descripción y precio) y un botón por
-    producto, así el cliente elige con un solo toque (sin abrir una lista).
-    WhatsApp permite máximo 3 botones por mensaje; si algún día hay más de 3
-    productos, se usa automáticamente la lista desplegable de antes.
-    Si un producto tiene "titulo_boton" en config.py, se usa como texto del
-    botón (máx. 20 caracteres); si no, se recorta el título."""
-    if len(PRODUCTOS) <= 3:
-        lineas = [MENSAJE_BIENVENIDA_MENU, ""]
-        botones = []
-        for clave, producto in PRODUCTOS.items():
-            emoji = producto.get("emoji_ficha", "🏗️")
-            lineas.append(f"{emoji} *{producto['titulo']}*")
-            lineas.append(f"{producto['descripcion_corta']} · *{producto['precio']}*")
-            lineas.append("")
-            titulo_boton = producto.get("titulo_boton") or producto["titulo"]
-            botones.append(
-                {
-                    "type": "reply",
-                    "reply": {"id": f"ver_pack:{clave}", "title": titulo_boton[:20]},
-                }
-            )
-        lineas.append("Tocá el que te interesa 👇")
-        texto = "\n".join(lineas)
-
-        payload = {
-            "messaging_product": "whatsapp",
-            "to": to,
-            "type": "interactive",
-            "interactive": {
-                "type": "button",
-                "body": {"text": texto[:1024]},
-                "action": {"buttons": botones},
-            },
-        }
-        _enviar_interactivo(to, payload, "[Menú de productos enviado]")
-        return
-
-    # Más de 3 productos: lista desplegable (una fila por producto).
-    filas = [
-        {
-            "id": f"ver_pack:{clave}",
-            "title": (producto.get("titulo_boton") or producto["titulo"])[:24],
-            "description": f"{producto.get('descripcion_corta', '')} · {producto['precio']}".lstrip(" ·")[:72],
-        }
-        for clave, producto in PRODUCTOS.items()
-    ]
-
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "type": "interactive",
-        "interactive": {
-            "type": "list",
-            "header": {"type": "text", "text": "Nuestros productos"},
-            "body": {"text": MENSAJE_BIENVENIDA_MENU},
-            "footer": {"text": "Tocá el botón para ver las opciones"},
-            "action": {
-                "button": "Ver productos",
-                "sections": [{"title": "Disponibles", "rows": filas}],
-            },
-        },
-    }
-    _enviar_interactivo(to, payload, "[Menú de productos enviado]")
-
-
-def enviar_ficha_producto(to, clave):
-    """Se muestra cuando el usuario elige un pack de la lista principal,
-    o cuando se detecta el producto directamente por texto/anuncio.
-    En vez de un mensaje con botones, manda una secuencia de mensajes de
-    texto (imagen + saludo + contenido + instrucción para comprar), con
-    pausas cortas entre cada uno para que no se sienta tan robótico.
-    Corre en un hilo aparte para no atrasar la respuesta del webhook."""
-    threading.Thread(target=_enviar_secuencia_ficha, args=(to, clave), daemon=True).start()
-
-
-def _enviar_botones_gamer(to, clave, tipo):
-    if tipo == "informacion":
-        botones = [
-            {"type": "reply", "reply": {"id": f"gamer_lista:{clave}", "title": "🎮 Ver los 78 juegos"}},
-            {"type": "reply", "reply": {"id": f"gamer_requisitos:{clave}", "title": "💻 Requisitos para PC"}},
-        ]
-        texto = "👇 Elegí qué información querés consultar:"
-    else:
-        botones = [{"type": "reply", "reply": {"id": f"comprar_pack:{clave}", "title": "🛒 Comprar ahora"}}]
-        texto = "👇 Tocá el botón para recibir los datos de pago:"
-    payload = {"messaging_product": "whatsapp", "to": to, "type": "interactive", "interactive": {
-        "type": "button", "body": {"text": texto}, "action": {"buttons": botones}}}
-    _enviar_interactivo(to, payload, texto)
-
-
-def _secuencia_pack_gamer(to, clave):
-    producto = PRODUCTOS[clave]
-    if producto.get("imagen"):
-        enviar_imagen(to, producto["imagen"])
-        time.sleep(2)
-    enviar_mensaje_texto(to, producto["saludo"])
-    time.sleep(2)
-    enviar_mensaje_texto(to, producto["texto_incluye"])
-    time.sleep(1)
-    _enviar_botones_gamer(to, clave, "informacion")
-    time.sleep(3)
-    enviar_mensaje_texto(to, producto["mensaje_precio"])
-    time.sleep(1)
-    _enviar_botones_gamer(to, clave, "compra")
-    programar_recordatorio_compra(to, clave)
-
-
-def _enviar_secuencia_ficha(to, clave):
-    producto = PRODUCTOS.get(clave)
-    if not producto:
-        return
-
-    PRODUCTO_ACTUAL[to] = clave  # recordamos qué producto le mostramos a este número
-
-    if clave == "pack_gamer_pc":
-        _secuencia_pack_gamer(to, clave)
-        return
-
-    # Productos en modo "oferta de libros" (ej: Kit Maestro): secuencia propia.
-    if producto.get("modo_oferta_libros"):
-        _secuencia_oferta_libros(to, clave)
-        return
-
-    PAUSA = 3  # segundos entre mensaje y mensaje
-
-    # Por defecto, cada producto manda UNA sola imagen en la ficha (prioriza
-    # la de oferta si existe, si no la de portada) — así se comportaba el
-    # Kit Maestro desde el principio y no lo tocamos.
-    # Si un producto tiene "sin_imagen": True, no manda ninguna imagen.
-    # Si tiene "galeria" (una lista de varias imágenes, ej: capturas reales
-    # del contenido), se mandan TODAS en secuencia.
-    # Si tiene "mostrar_dos_imagenes": True, se mandan portada + oferta.
-    if producto.get("sin_imagen"):
-        pass  # no se manda ninguna imagen para este producto
-    elif producto.get("galeria"):
-        for imagen_url in producto["galeria"]:
-            enviar_imagen(to, imagen_url)
-            time.sleep(PAUSA)
-    elif producto.get("mostrar_dos_imagenes"):
-        imagen_portada = producto.get("imagen")
-        imagen_oferta = producto.get("imagen_oferta")
-
-        if imagen_portada:
-            enviar_imagen(to, imagen_portada)
-            time.sleep(PAUSA)
-
-        if imagen_oferta and imagen_oferta != imagen_portada:
-            enviar_imagen(to, imagen_oferta)
-            time.sleep(PAUSA)
-    else:
-        imagen_url = producto.get("imagen_oferta") or producto.get("imagen")
-        if imagen_url:
-            enviar_imagen(to, imagen_url)
-            time.sleep(PAUSA)
-
-    # Mensaje 1: saludo, agradeciendo el interés. Si el producto tiene
-    # "saludo" en config.py, se usa ese texto tal cual (personalizado).
-    # Si no, se arma con la plantilla genérica de siempre.
-    if producto.get("saludo"):
-        enviar_mensaje_texto(to, producto["saludo"].replace("{nombre}", _nombre_saludo(to)))
-    else:
-        emoji_producto = producto.get("emoji_ficha", "🏗️")
-        enviar_mensaje_texto(
-            to,
-            f"¡Hola! 👋 Gracias por tu interés en nuestro *{producto['titulo']}* {emoji_producto}\n\n"
-            "¡Excelente elección! Te cuento todo lo que incluye.",
-        )
-    time.sleep(PAUSA)
-
-    # Mensaje 2: lo que incluye. Si el producto tiene "manuales" (con
-    # título, autor y link de adelanto), se usa ese formato; si además
-    # tiene "regalo_sorpresa" (libros extra que no se mencionan en la
-    # publicidad), se agregan al final como sorpresa. Si el producto no
-    # tiene "manuales" en absoluto (ej: una cuenta/suscripción), se usa
-    # "que_incluye" en su lugar.
-    if producto.get("manuales"):
-        lineas = [f"📚 *Esto es lo que te llevás:*\n"]
-        for i, manual in enumerate(producto["manuales"], start=1):
-            lineas.append(f"{_num(i)} *{manual['titulo']}* ({manual['autor']})")
-            lineas.append(f"👉 {manual['link']}\n" if manual.get("link") else "")
-        if producto.get("regalo_sorpresa"):
-            lineas.append("🎁 *Y de regalo, además, te llevás:*\n")
-            for regalo in producto["regalo_sorpresa"]:
-                lineas.append(f"🎁 {regalo}")
-        enviar_mensaje_texto(to, "\n".join(lineas))
-    elif producto.get("texto_incluye"):
-        # Texto armado a mano en config.py (con secciones y emojis).
-        enviar_mensaje_texto(to, producto["texto_incluye"])
-    elif producto.get("que_incluye"):
-        lineas = [f"✨ *¿Qué incluye tu plan?*\n"]
-        for item in producto["que_incluye"]:
-            lineas.append(f"✅ {item}")
-        enviar_mensaje_texto(to, "\n".join(lineas))
-    time.sleep(PAUSA)
-
-    # Mensaje 3: precio + instrucción para comprar. Si el producto tiene
-    # "mensaje_precio" en config.py, se usa ese texto tal cual
-    # (personalizado). Si no, se arma con la plantilla genérica de siempre.
-    if producto.get("mensaje_precio"):
-        enviar_mensaje_texto(to, producto["mensaje_precio"])
-    else:
-        enviar_mensaje_texto(
-            to,
-            f"💰 *Precio:* {producto['precio']}\n\n"
-            "Si querés adquirir el pack, escribí *ALIAS* y te paso todos los datos "
-            "para transferir. 👇",
-        )
-
-    # Botón directo para comprar (así no tiene que escribir nada).
-    time.sleep(2)
-    enviar_botones_pack(to, clave, texto="Tocá el botón y te paso los datos para pagar 👇")
-
-    # Si en 3 minutos / 1 hora no escribe nada más, le mandamos un recordatorio.
-    programar_recordatorio_compra(to, clave)
-
-
-
-
-def _secuencia_oferta_libros(to, clave):
-    """Ficha en modo oferta: saludo -> oferta única -> cada libro con su portada
-    (título + autor en el pie de la imagen) -> libros sin portada en lista ->
-    regalos -> precio con botón de compra."""
-    producto = PRODUCTOS[clave]
-    PAUSA = 3
-
-    # 0) Imagen de portada del producto (el banner), arriba de todo.
-    imagen_inicio = producto.get("imagen_oferta") or producto.get("imagen")
-    if imagen_inicio and not producto.get("sin_imagen"):
-        enviar_imagen(to, imagen_inicio)
-        time.sleep(PAUSA)
-
-    # 1) Saludo del producto.
-    enviar_mensaje_texto(
-        to,
-        (producto.get("saludo") or f"¡Hola{{nombre}}! 👋 Gracias por tu interés en el *{producto['titulo']}*")
-        .replace("{nombre}", _nombre_saludo(to)),
-    )
-    time.sleep(PAUSA)
-
-    # Libros principales y libros "de regalo" (los marcados con "regalo": True).
-    manuales = producto.get("manuales", [])
-    principales = [m for m in manuales if not m.get("regalo")]
-    libros_regalo = [m for m in manuales if m.get("regalo")]
-
-    # 2) Oferta: "te llevás estos N libros".
-    enviar_mensaje_texto(
-        to,
-        (producto.get("oferta_intro") or f"🔥 *OFERTA ÚNICA* 🔥\n\nLlevate todo por solo *{producto['precio']}*:")
-        .replace("{n}", str(len(principales))),
-    )
-    time.sleep(PAUSA)
-
-    # 3) Portadas de los libros principales (imagen + título y autor).
-    sin_portada = []
-    enviar_portadas = producto.get("enviar_portadas", True)  # False = no mandar una imagen por libro
-    for manual in principales:
-        if enviar_portadas and str(manual.get("imagen", "")).strip():
-            enviar_imagen(
-                to, manual["imagen"],
-                caption=f"📘 *{manual['titulo']}*\n✍️ {manual['autor']}",
-            )
-            time.sleep(2)
-        else:
-            sin_portada.append(manual)
-
-    # 4) Lista de los libros principales, con el link de vista breve de cada uno.
-    if libros_regalo:
-        lineas = [(producto.get("texto_vista_breve") or "👀 *Mirá un adelanto de cada uno, sin compromiso:*") + "\n"]
-        for manual in principales:
-            linea = f"📘 *{manual['titulo']}* ({manual['autor']})"
-            if manual.get("link"):
-                linea += f"\n👀 {manual['link']}"
-            lineas.append(linea + "\n")
-        enviar_mensaje_texto(to, "\n".join(lineas))
-        time.sleep(PAUSA)
-
-        # 4b) Los libros de regalo (con portada si la tienen, el resto en lista).
-        regalo_sin_portada = []
-        for manual in libros_regalo:
-            if enviar_portadas and str(manual.get("imagen", "")).strip():
-                enviar_imagen(to, manual["imagen"], caption=f"🎁 *{manual['titulo']}*\n✍️ {manual['autor']}")
-                time.sleep(2)
-            else:
-                regalo_sin_portada.append(manual)
-        titulo_regalo = (
-            producto.get("texto_libros_regalo")
-            or "🎁 *Y no solo eso: además te llevás de REGALO estos {n} libros:*"
-        ).replace("{n}", str(len(libros_regalo)))
-        lineas = [titulo_regalo + "\n"]
-        for manual in (regalo_sin_portada if regalo_sin_portada else libros_regalo):
-            lineas.append(f"🎁 *{manual['titulo']}* ({manual['autor']})")
-        enviar_mensaje_texto(to, "\n".join(lineas))
-        time.sleep(PAUSA)
-    elif sin_portada:
-        titulo_lista = (
-            (producto.get("texto_ademas") or "📚 *Y además te llevás:*") + "\n"
-            if len(sin_portada) != len(manuales)
-            else "📚 *Esto es lo que te llevás:*\n"
-        )
-        lineas = [titulo_lista]
-        for manual in sin_portada:
-            lineas.append(f"• *{manual['titulo']}* ({manual['autor']})")
-        enviar_mensaje_texto(to, "\n".join(lineas))
-        time.sleep(PAUSA)
-
-    # 5) Regalos: la Guía (con su portada) y el plus sorpresa.
-    bonus = _bonus_activo(producto)
-    regalos_texto = list(producto.get("regalo_sorpresa", []))
-    if bonus:
-        if str(bonus.get("imagen", "")).strip():
-            enviar_imagen(to, bonus["imagen"], caption=f"🎁 *DE REGALO:*\n📘 *{bonus['titulo']}*")
-            time.sleep(2)
-        else:
-            regalos_texto.insert(0, bonus["titulo"])
-    if regalos_texto:
-        enviar_mensaje_texto(
-            to,
-            (producto.get("texto_regalo") or "🎁 *Y de regalo, además:*") + "\n" + "\n".join(f"🎁 {r}" for r in regalos_texto),
-        )
-        time.sleep(PAUSA)
-
-    # 6) Precio + botón de compra.
-    if producto.get("mensaje_precio"):
-        enviar_mensaje_texto(to, producto["mensaje_precio"])
-    else:
-        enviar_mensaje_texto(to, f"💰 *Precio:* {producto['precio']}")
-    time.sleep(2)
-    enviar_mensaje_texto(to, producto.get("texto_alias") or "✍️ Escribí *ALIAS* y te paso todos los datos para transferir. 👇")
-    if not producto.get("sin_botones_ficha"):
-        time.sleep(2)
-        enviar_botones_pack(to, clave, texto=producto.get("texto_botones") or "O si preferís, tocá el botón 👇")
-
-    programar_recordatorio_compra(to, clave)
-
-
-def enviar_documento(to, doc_url, nombre_archivo, caption=""):
-    """Manda un PDF (u otro archivo) por WhatsApp desde una URL pública. Reintenta una vez."""
-    url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
-    headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "type": "document",
-        "document": {"link": doc_url, "filename": nombre_archivo, "caption": caption},
-    }
-    exito = _post_a_meta(url, headers, payload)
-    if not exito:
-        time.sleep(2)
-        exito = _post_a_meta(url, headers, payload)
-    if exito:
-        guardar_mensaje(to, "saliente", f"[Documento] {nombre_archivo}")
-    return exito
-
-
-def enviar_imagen(to, imagen_url, caption=""):
-    """Manda una imagen por WhatsApp. Reintenta una vez más si el primer
-    intento falla (a veces Meta tarda en descargar la imagen y da timeout,
-    sobre todo justo después de que el servidor estuvo inactivo)."""
-    url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
-    headers = {
-        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "type": "image",
-        "image": {"link": imagen_url, "caption": caption},
-    }
-
-    exito = _post_a_meta(url, headers, payload)
-    if not exito:
-        print("Primer intento de mandar imagen falló, reintentando en 2 segundos...")
-        time.sleep(2)
-        exito = _post_a_meta(url, headers, payload)
-        if not exito:
-            print("Segundo intento de mandar imagen también falló, se omite la imagen.")
-
-    guardar_mensaje(to, "saliente", f"[Imagen enviada] {caption}")
-
-
-def enviar_botones_pack(to, clave, texto="¿Cómo querés avanzar?", incluir_ver=False):
-    botones = []
-    if incluir_ver:
-        botones.append({"type": "reply", "reply": {"id": f"ver_resena:{clave}", "title": "📚 Ver qué incluye"}})
-    titulo_compra = str((PRODUCTOS.get(clave) or {}).get("titulo_boton_compra", "")).strip() or "💳 Quiero comprarlo"
-    botones.append({"type": "reply", "reply": {"id": f"comprar_pack:{clave}", "title": titulo_compra[:20]}})
-    botones.append({"type": "reply", "reply": {"id": "hablar_vendedor", "title": "💬 Hablar con asesor"}})
-
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "type": "interactive",
-        "interactive": {
-            "type": "button",
-            "body": {"text": texto},
-            "action": {"buttons": botones},
-        },
-    }
-    _enviar_interactivo(to, payload, texto)
-
-
-def _texto_detalle_manuales(clave):
-    producto = PRODUCTOS[clave]
-
-    if producto.get("manuales"):
-        lineas = [f"📖 *Contenido del {producto['titulo']}*:\n"]
-        for i, manual in enumerate(producto["manuales"], start=1):
-            lineas.append(f"{_num(i)} *{manual['titulo']}* ({manual['autor']})" + (f"\n👉 *Ver adelanto:* {manual['link']}\n" if manual.get("link") else ""))
-        if producto.get("regalo_sorpresa"):
-            lineas.append("🎁 *Y de regalo, además, te llevás:*\n")
-            for regalo in producto["regalo_sorpresa"]:
-                lineas.append(f"🎁 {regalo}")
-        lineas.append(f"\n💰 *Precio promocional:* {producto['precio']}")
-        return "\n".join(lineas)
-
-    # Si el producto tiene "que_incluye" (una lista de beneficios, para
-    # productos que no son PDFs/manuales), se arma el texto con eso.
-    if producto.get("que_incluye"):
-        lineas = [f"✨ *¿Qué incluye {producto['titulo']}?*\n"]
-        for item in producto["que_incluye"]:
-            lineas.append(f"✅ {item}")
-        lineas.append(f"\n💰 *Precio:* {producto['precio']}")
-        return "\n".join(lineas)
-
-    return f"💰 *Precio:* {producto['precio']}"
-
-
-def _enviar_interactivo(to, payload, texto_para_guardar):
-    url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
-    headers = {
-        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
-        "Content-Type": "application/json",
-    }
-    _post_a_meta(url, headers, payload)
-    guardar_mensaje(to, "saliente", texto_para_guardar)
-
-
-# =====================================================================
-#  Cuestionario después del pago (productos a pedido, ej: canción)
-#  ----------------------------------------------------------------
-#  Si un producto tiene "cuestionario" en config.py, cuando se aprueba el
-#  pago el bot le hace esas preguntas al cliente, de a una, y al final te
-#  manda el pedido completo por Telegram. El estado se guarda en la base
-#  (tabla "cuestionarios"), así que sobrevive a un reinicio del servidor
-#  siempre que DB_PATH apunte a un disco persistente.
-# =====================================================================
-HORAS_VENCE_CUESTIONARIO = 48
-
-
-def _guardar_estado_cuestionario(numero, clave, paso, respuestas, estado):
-    conn = sqlite3.connect(DB_PATH)
-    try:
-        conn.execute(
-            "INSERT OR REPLACE INTO cuestionarios (numero, clave, paso, respuestas, estado, ts) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (numero, clave, paso, json.dumps(respuestas, ensure_ascii=False), estado, time.time()),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def obtener_cuestionario_activo(numero):
-    """Devuelve (clave, paso, respuestas) si este número tiene un cuestionario
-    en curso (y no venció), o None."""
-    conn = sqlite3.connect(DB_PATH)
-    try:
-        fila = conn.execute(
-            "SELECT clave, paso, respuestas, ts FROM cuestionarios WHERE numero = ? AND estado = 'activo'",
-            (numero,),
-        ).fetchone()
-    finally:
-        conn.close()
-    if not fila:
-        return None
-    clave, paso, respuestas_json, ts = fila
-    if time.time() - ts > HORAS_VENCE_CUESTIONARIO * 3600:
-        return None
-    try:
-        respuestas = json.loads(respuestas_json)
-    except Exception:
-        respuestas = []
-    return clave, paso, respuestas
-
-
-def _texto_pregunta(producto, paso):
-    preguntas = producto["cuestionario"]
-    return f"*Pregunta {paso + 1} de {len(preguntas)}*\n{preguntas[paso]}"
-
-
-def iniciar_cuestionario(numero, clave):
-    producto = PRODUCTOS[clave]
-    _guardar_estado_cuestionario(numero, clave, 0, [], "activo")
-    intro = producto.get(
-        "cuestionario_intro",
-        "✅ *¡Pago confirmado!* Te voy a hacer unas preguntas, de a una.",
-    )
-    enviar_mensaje_texto(numero, f"{intro}\n\n{_texto_pregunta(producto, 0)}")
-    enviar_notificacion_telegram(
-        numero, f"💳 Pago aprobado de «{producto['titulo']}». Empezó el cuestionario con el cliente."
-    )
-
-
-def procesar_respuesta_cuestionario(numero, texto):
-    """Si este número está respondiendo un cuestionario, guarda la respuesta
-    y manda la siguiente pregunta (o el cierre). Devuelve True si el mensaje
-    fue una respuesta del cuestionario, False si no corresponde."""
-    estado = obtener_cuestionario_activo(numero)
-    if not estado:
-        return False
-    clave, paso, respuestas = estado
-    producto = PRODUCTOS.get(clave)
-    if not producto or not producto.get("cuestionario"):
-        return False
-
-    preguntas = producto["cuestionario"]
-    respuestas.append(texto)
-    paso += 1
-
-    if paso < len(preguntas):
-        _guardar_estado_cuestionario(numero, clave, paso, respuestas, "activo")
-        enviar_mensaje_texto(numero, _texto_pregunta(producto, paso))
-        return True
-
-    _guardar_estado_cuestionario(numero, clave, paso, respuestas, "completo")
-    enviar_mensaje_texto(
-        numero,
-        producto.get(
-            "cuestionario_cierre",
-            "🎉 *¡Listo, ya tengo todo!* Te enviamos tu pedido por acá en breve. 💛",
-        ),
-    )
-
-    lineas = [f"🎵 PEDIDO COMPLETO — {producto['titulo']}", ""]
-    for i, (pregunta, respuesta) in enumerate(zip(preguntas, respuestas), start=1):
-        lineas.append(f"{i}. {pregunta}")
-        lineas.append(f"→ {str(respuesta)[:900]}")
-        lineas.append("")
-    enviar_notificacion_telegram(numero, "\n".join(lineas).strip())
-    return True
-
-
-def enviar_manuales_completos(to, clave="kit_maestro"):
-    """Entrega el contenido principal y, si el cliente había recibido la promo
-    de bonus, le manda también su regalo."""
-    _enviar_contenido_principal(to, clave)
-    try:
-        _entregar_bonus_si_corresponde(to, clave)
-    except Exception as e:
-        print("Error entregando bonus:", e)
-    producto = PRODUCTOS.get(clave, {})
-    if producto.get("mensaje_comentario"):
-        t = threading.Timer(producto.get("segundos_comentario", 300), _pedir_comentario_producto, args=(to, clave))
-        t.daemon = True
-        t.start()
-    elif not producto.get("cuestionario") and not producto.get("entrega_manual"):
-        try:
-            import config as _cfg
-            t = threading.Timer(
-                getattr(_cfg, "SEGUNDOS_PEDIR_COMENTARIO", 120),
-                _pedir_comentario, args=(to, getattr(_cfg, "COMENTARIO_LINK", "")),
-            )
-            t.daemon = True
-            t.start()
-        except Exception as e:
-            print("Error programando pedido de comentario:", e)
-
-
-def _tabla_esperando_captura():
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("CREATE TABLE IF NOT EXISTS esperando_captura (numero TEXT PRIMARY KEY, hasta REAL)")
-    conn.commit()
-    return conn
-
-
-def marcar_esperando_captura(numero, dias=3):
-    """Después de pedir el comentario, la próxima imagen del cliente es la captura (no un comprobante)."""
-    conn = _tabla_esperando_captura()
-    conn.execute("INSERT OR REPLACE INTO esperando_captura (numero, hasta) VALUES (?, ?)", (numero, time.time() + dias * 86400))
-    conn.commit(); conn.close()
-
-
-def esperando_captura(numero):
-    conn = _tabla_esperando_captura()
-    fila = conn.execute("SELECT hasta FROM esperando_captura WHERE numero = ?", (numero,)).fetchone()
-    conn.close()
-    return bool(fila and fila[0] > time.time())
-
-
-def limpiar_esperando_captura(numero):
-    conn = _tabla_esperando_captura()
-    conn.execute("DELETE FROM esperando_captura WHERE numero = ?", (numero,))
-    conn.commit(); conn.close()
-
-
-def _pedir_comentario_producto(to, clave):
-    """Pedido de comentario propio del producto (config.py: mensaje_comentario)."""
-    producto = PRODUCTOS.get(clave, {})
-    enviar_mensaje_texto(to, producto["mensaje_comentario"])
-    marcar_esperando_captura(to)
-
-
-def _pedir_comentario(to, link):
-    texto = (
-        "🙌 *¡Gracias por tu compra!*\n\n"
-        "Si el material te sirvió, te agradecería mucho que dejes un comentario "
-        "en nuestra página. A mí me ayuda a seguir creciendo y a otras personas "
-        "las ayuda a animarse. 💛"
-    )
-    if str(link).strip():
-        texto += f"\n\n👉 {link}"
-    enviar_mensaje_texto(to, texto)
-
-
-def _enviar_contenido_principal(to, clave="kit_maestro"):
-    producto = PRODUCTOS[clave]
-
-    # Productos a pedido (ej: canción personalizada): después del pago, el
-    # bot le hace las preguntas al cliente en vez de mandar una carpeta.
-    if producto.get("cuestionario"):
-        iniciar_cuestionario(to, clave)
-        return
-
-    # Productos de entrega manual (ej: cuentas): no hay link ni carpeta,
-    # el usuario/contraseña lo escribe un humano a mano después, por
-    # WhatsApp (panel o Telegram).
-    if producto.get("entrega_manual"):
-        enviar_mensaje_texto(
-            to,
-            producto.get(
-                "mensaje_entrega_manual",
-                "✅ *¡Pago confirmado!* En breve te enviamos tus datos de acceso "
-                "acá mismo. ¡Gracias por tu compra! 🙌",
-            ),
-        )
-        return
-
-    link_carpeta = producto.get("link_carpeta_final")
-    cantidad = len(producto["manuales"])
-
-    # Mensaje de entrega propio del producto (config.py). {link} = link de Drive (el PDF con todo).
-    pdf_entrega = str(producto.get("pdf_entrega", "")).strip()  # PDF alojado en la carpeta archivos/ del repo
-    if producto.get("mensaje_entrega") and (link_carpeta or pdf_entrega):
-        enviar_mensaje_texto(to, producto["mensaje_entrega"].replace("{link}", link_carpeta or ""))
-        if pdf_entrega:
-            time.sleep(2)
-            url_pdf = f"{BASE_URL}/archivos/{pdf_entrega}" if BASE_URL else ""
-            ok = bool(url_pdf) and enviar_documento(to, url_pdf, pdf_entrega)
-            if not ok and link_carpeta:
-                enviar_mensaje_texto(to, f"📄 Tu PDF con todo el material:\n{link_carpeta}")
-            elif not ok:
-                enviar_mensaje_texto(to, "📄 No pude adjuntarte el PDF automáticamente. Escribime y te lo mando enseguida. 🙌")
-        return
-
-    if link_carpeta:
-        if producto.get("descripcion_entrega"):
-            descripcion_entrega = producto["descripcion_entrega"]
-        elif cantidad == 0:
-            descripcion_entrega = "tu carpeta con todo el contenido, lista para descargar"
-        elif cantidad == 1:
-            descripcion_entrega = "tu archivo, listo para descargar"
-        else:
-            descripcion_entrega = f"tu carpeta con los {cantidad} manuales completos, listos para descargar"
-        link_extra = str(producto.get("link_carpeta_extra", "")).strip()
-        if link_extra:
-            enviar_mensaje_texto(
-                to,
-                f"✅ *¡Pago confirmado!* Acá tenés tus {cantidad} manuales completos, "
-                "en dos carpetas listas para descargar:\n\n"
-                f"📁 *Carpeta 1:*\n{link_carpeta}\n\n"
-                f"📁 *Carpeta 2:*\n{link_extra}\n\n"
-                "¡Gracias por tu compra! 🙌",
-            )
-        else:
-            enviar_mensaje_texto(
-                to,
-                f"✅ *¡Pago confirmado!* Acá tenés {descripcion_entrega}:\n\n"
-                f"{link_carpeta}\n\n"
-                "¡Gracias por tu compra! 🙌",
-            )
-    else:
-        # Respaldo: si no hay carpeta configurada, mandamos los links
-        # individuales de cada manual (como se hacía antes).
-        encabezado = "tu manual completo" if cantidad == 1 else f"tus {cantidad} manuales completos"
-        lineas = [f"✅ *¡Pago confirmado! Acá tenés {encabezado}:*\n"]
-        for i, manual in enumerate(producto["manuales"], start=1):
-            lineas.append(f"{_num(i)} *{manual['titulo']}* ({manual['autor']})" + (f"\n👉 {manual['link']}\n" if manual.get("link") else ""))
-        lineas.append("¡Gracias por tu compra! 🙌")
-        enviar_mensaje_texto(to, "\n".join(lineas))
-
-
-# =====================================================================
-#  Mercado Pago — pago automático (opcional)
-#  ----------------------------------------------------------------
-#  Esto es una opción ADICIONAL a la transferencia por alias: el cliente
-#  puede pagar con Mercado Pago y, apenas se acredita, el bot le manda los
-#  manuales solo, sin que nadie tenga que aprobar nada a mano. Si no
-#  configurás MP_ACCESS_TOKEN y BASE_URL, esta parte simplemente no se usa
-#  y todo sigue funcionando con la transferencia por alias como siempre.
-# =====================================================================
-def crear_preferencia_pago(numero, clave):
-    """Genera un link de pago único de Mercado Pago para este cliente y
-    este producto. Devuelve el link, o None si algo falla."""
-    if not MP_ACCESS_TOKEN or not BASE_URL:
-        return None
-    producto = _producto_para(numero, clave)
-    if not producto:
-        return None
-
-    url = "https://api.mercadopago.com/checkout/preferences"
-    headers = {
-        "Authorization": f"Bearer {MP_ACCESS_TOKEN}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "items": [
-            {
-                "title": producto["titulo"],
-                "quantity": 1,
-                "unit_price": float(producto.get("precio_valor", 0)),
-                "currency_id": "ARS",
-            }
-        ],
-        # external_reference es la clave: acá "marcamos" de quién y de qué
-        # producto es este pago, para reconocerlo cuando llegue la
-        # confirmación en /webhook/mercadopago.
-        "external_reference": f"{numero}|{clave}",
-        "notification_url": f"{BASE_URL}/webhook/mercadopago",
-    }
-    try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=15)
-        resp.raise_for_status()
-        data = resp.json()
-        return data.get("init_point")
-    except Exception as e:
-        print("Error creando preferencia de Mercado Pago:", repr(e))
-        return None
-
-
-def confirmar_pago_automatico_mp(numero, clave):
-    """Se llama cuando Mercado Pago confirma que un pago fue aprobado. Le
-    manda los manuales directo, sin necesitar aprobación manual, y avisa
-    por Telegram para que quede registrado."""
-    desactivar_modo_ia(numero)
-    cancelar_recordatorio(numero)
-    enviar_manuales_completos(numero, clave)
-    enviar_notificacion_telegram(
-        numero,
-        "💳 Pago automático confirmado por Mercado Pago. Los manuales ya se le mandaron solos, no hace falta que hagas nada.",
-    )
-
-
-def obtener_media_de_meta(media_id):
-    """Descarga una imagen/documento recibido por WhatsApp usando el WHATSAPP_TOKEN."""
-    headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}"}
-    info = requests.get(f"https://graph.facebook.com/v21.0/{media_id}", headers=headers, timeout=15)
-    info.raise_for_status()
-    url = info.json()["url"]
-    archivo = requests.get(url, headers=headers, timeout=15)
-    archivo.raise_for_status()
-    return archivo.content, info.json().get("mime_type", "application/octet-stream")
-
-
-# =====================================================================
-#  IA de Respaldo (Gemini) — Interactions API
-#  (Ya no se usa en el flujo de mensajes de texto; queda disponible por si
-#  en el futuro querés engancharla, por ejemplo, en "hablar_vendedor".)
-# =====================================================================
-
-
-def generar_respuesta_ia(texto_usuario):
-    """Intenta responder con Gemini (varios modelos) y, si todo falla, con Groq (gratis)."""
-    if GEMINI_API_KEY:
-        respuesta = preguntar_a_gemini(texto_usuario)
-        if respuesta is not None:
-            return respuesta
-
-    if GROQ_API_KEY:
-        respuesta = preguntar_a_groq(texto_usuario)
-        if respuesta is not None:
-            return respuesta
-
-    return "Un encargado te va a responder a la brevedad para ayudarte con tu consulta."
-
-
-def preguntar_a_groq(texto_usuario):
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-    }
-    payload = {
-        "model": "llama-3.3-70b-versatile",
-        "messages": [
-            {"role": "system", "content": PROMPT_SISTEMA_IA},
-            {"role": "user", "content": texto_usuario},
-        ],
-    }
-    try:
-        resp = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=20,
-        )
-        if resp.status_code >= 400:
-            print("Groq devolvió error:", resp.text)
-            return None
-        data = resp.json()
-        return data["choices"][0]["message"]["content"]
-    except Exception as e:
-        print("Error al consultar Groq:", e)
-        return None
-
-
-def preguntar_a_gemini(texto_usuario):
-    headers = {
-        "Content-Type": "application/json",
-        "x-goog-api-key": GEMINI_API_KEY,
-    }
-    texto_prompt = f"{PROMPT_SISTEMA_IA} Mensaje del cliente: {texto_usuario}"
-
-    # Probamos el modelo principal y, si está saturado, modelos de respaldo.
-    modelos_a_probar = [GEMINI_MODEL, "gemini-3.5-flash", "gemini-3.5-flash-lite"]
-    # Evitamos duplicados manteniendo el orden
-    modelos_a_probar = list(dict.fromkeys(modelos_a_probar))
-
-    for modelo in modelos_a_probar:
-        payload = {"model": modelo, "store": False, "input": texto_prompt}
-        for intento in range(2):  # hasta 2 intentos por modelo
-            try:
-                resp = requests.post(GEMINI_URL, headers=headers, json=payload, timeout=20)
-                if resp.status_code >= 400:
-                    print(f"Gemini ({modelo}, intento {intento+1}) devolvió error:", resp.text)
-                    cuerpo = resp.text.lower()
-                    if "high demand" in cuerpo or "unavailable" in cuerpo or resp.status_code in (429, 503):
-                        continue  # reintenta o pasa al siguiente modelo
-                    break  # error distinto (ej. modelo no existe): probamos el siguiente modelo directamente
-
-                data = resp.json()
-                for step in data.get("steps", []):
-                    if step.get("type") == "model_output":
-                        for bloque in step.get("content", []):
-                            if bloque.get("type") == "text":
-                                return bloque["text"]
-                break  # respondió 200 pero sin texto útil: probamos el siguiente modelo
-            except Exception as e:
-                print(f"Error al consultar Gemini ({modelo}, intento {intento+1}):", e)
-
-    return None  # Gemini falló del todo; generar_respuesta_ia pasará a Groq si está disponible
-
-
-# =====================================================================
-#  Envío de mensajes de texto simples + llamada a la API de Meta
-# =====================================================================
-def enviar_mensaje_texto(to, texto):
-    url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
-    headers = {
-        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "type": "text",
-        "text": {"body": texto},
-    }
-    _post_a_meta(url, headers, payload)
-    guardar_mensaje(to, "saliente", texto)
-
-
-def _post_a_meta(url, headers, payload):
-    """Hace el POST a la API de Meta. Devuelve True si salió bien (200-299),
-    False si falló (por error de Meta o de conexión)."""
-    try:
-        response = requests.post(url, headers=headers, json=payload, timeout=10)
-        if response.status_code >= 400:
-            print("Error de Meta al enviar mensaje:", response.status_code, response.text)
-            return False
-        return True
-    except requests.exceptions.RequestException as e:
-        print("Error al llamar a la API de Meta:", e)
-        return False
-
-
-# =====================================================================
-#  Panel web: login + ver conversaciones + responder manualmente
-# =====================================================================
-LOGIN_HTML = """
-<!doctype html>
-<html lang="es">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Ingresar — Panel {{ nombre_negocio }}</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>
-    :root {
-      --tinta: #1B2430;
-      --acento: #B85C38;
-      --papel: #FAF8F5;
-      --borde: #E4DFD6;
-    }
-    * { box-sizing: border-box; }
-    body {
-      font-family: 'Inter', system-ui, sans-serif;
-      background: var(--tinta);
-      display: flex; align-items: center; justify-content: center;
-      min-height: 100vh; margin: 0; padding: 24px;
-    }
-    .caja {
-      background: var(--papel);
-      padding: 32px 28px;
-      border-radius: 16px;
-      box-shadow: 0 20px 60px rgba(0,0,0,.35);
-      width: 100%; max-width: 340px;
-    }
-    .marca {
-      font-size: 13px; font-weight: 600; letter-spacing: .02em;
-      color: var(--acento); margin: 0 0 4px;
-    }
-    h1 {
-      font-size: 20px; font-weight: 700; color: var(--tinta);
-      margin: 0 0 24px; line-height: 1.3;
-    }
-    input {
-      width: 100%; padding: 12px 14px; margin-bottom: 12px;
-      border: 1.5px solid var(--borde); border-radius: 10px;
-      font-size: 15px; font-family: inherit; box-sizing: border-box;
-      background: white;
-    }
-    input:focus { outline: none; border-color: var(--acento); }
-    button {
-      width: 100%; padding: 12px; background: var(--acento); color: white;
-      border: none; border-radius: 10px; font-size: 15px; font-weight: 600;
-      font-family: inherit; cursor: pointer;
-    }
-    button:hover { filter: brightness(1.08); }
-    .error {
-      color: #A33; font-size: 13px; margin: 12px 0 0; padding: 10px 12px;
-      background: #FBEAEA; border-radius: 8px;
-    }
-  </style>
-</head>
-<body>
-  <div class="caja">
-    <p class="marca">{{ nombre_negocio }}</p>
-    <h1>Ingresá para ver tus conversaciones</h1>
-    <form method="POST">
-      <input type="password" name="clave" placeholder="Clave de acceso" autofocus required>
-      <button type="submit">Ingresar</button>
-    </form>
-    {% if error %}<p class="error">{{ error }}</p>{% endif %}
-  </div>
-</body>
-</html>
-"""
-
-PANEL_HTML = """
-<!doctype html>
-<html lang="es">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="refresh" content="15">
-  <title>Panel {{ nombre_negocio }}</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>
-    :root {
-      --tinta: #1B2430;
-      --tinta-suave: #2A3646;
-      --acento: #B85C38;
-      --aprobar: #2F6B4F;
-      --pendiente: #B8862F;
-      --papel: #FAF8F5;
-      --borde: #E4DFD6;
-      --texto-claro: #6B6459;
-    }
-    * { box-sizing: border-box; }
-    body {
-      font-family: 'Inter', system-ui, sans-serif;
-      background: var(--papel); margin: 0; padding: 0;
-      display: flex; height: 100vh; overflow: hidden;
-      color: var(--tinta);
-    }
-
-    /* ---------- Barra lateral (lista de conversaciones) ---------- */
-    .lista {
-      width: 100%; max-width: 320px; background: var(--tinta);
-      display: flex; flex-direction: column; flex-shrink: 0;
-    }
-    .lista-header {
-      padding: 18px 16px 12px; display: flex; align-items: center;
-      justify-content: space-between;
-    }
-    .lista-header .marca { color: white; font-weight: 700; font-size: 15px; margin: 0; }
-    .salir {
-      font-size: 12px; color: #B8B2A6; text-decoration: none; font-weight: 500;
-    }
-    .salir:hover { color: white; }
-    .buscador { padding: 0 16px 12px; }
-    .buscador input {
-      width: 100%; padding: 9px 12px; border-radius: 8px; border: none;
-      background: var(--tinta-suave); color: white; font-size: 14px; font-family: inherit;
-    }
-    .buscador input::placeholder { color: #8B8578; }
-    .buscador input:focus { outline: 1.5px solid var(--acento); }
-    .conversaciones { flex: 1; overflow-y: auto; }
-    .fila {
-      display: flex; align-items: center; gap: 10px;
-      padding: 11px 16px; text-decoration: none; color: #E8E4DC;
-      border-left: 3px solid transparent;
-    }
-    .fila:hover { background: var(--tinta-suave); }
-    .fila.activo { background: var(--tinta-suave); border-left-color: var(--acento); }
-    .avatar {
-      width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
-      color: white; display: flex; align-items: center; justify-content: center;
-      font-size: 14px; font-weight: 600;
-    }
-    .fila-texto { min-width: 0; flex: 1; }
-    .fila-nombre {
-      font-size: 14px; font-weight: 600; color: white;
-      display: flex; align-items: center; gap: 6px;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-    .fila-preview {
-      font-size: 12.5px; color: #9B9483; margin-top: 2px;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-    .badge-pendiente {
-      background: var(--pendiente); color: white; font-size: 10.5px; font-weight: 600;
-      padding: 2px 7px; border-radius: 20px; flex-shrink: 0;
-    }
-    .lista-vacia { padding: 24px 16px; color: #9B9483; font-size: 13.5px; line-height: 1.5; }
-
-    /* ---------- Panel de conversación ---------- */
-    .chat { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--papel); }
-    .chat-header {
-      padding: 16px 22px; background: white; border-bottom: 1px solid var(--borde);
-      display: flex; align-items: center; gap: 12px;
-    }
-    .chat-header .avatar { width: 40px; height: 40px; font-size: 15px; }
-    .chat-header-info .nombre { font-weight: 700; font-size: 15.5px; }
-    .chat-header-info .numero { font-size: 12.5px; color: var(--texto-claro); }
-    .volver { display: none; color: var(--tinta); text-decoration: none; font-size: 20px; margin-right: 2px; }
-
-    .comprobante {
-      background: #FCF3E3; border-left: 3px solid var(--pendiente);
-      border-radius: 10px; padding: 14px 16px; margin: 16px 22px 0; font-size: 14px;
-    }
-    .comprobante strong { display: block; margin-bottom: 8px; font-size: 13.5px; }
-    .comprobante img { max-width: 100%; border-radius: 8px; margin: 8px 0; display: block; }
-    .comprobante a.ver { color: var(--acento); font-size: 13px; font-weight: 600; }
-    .btn-aprobar {
-      background: var(--aprobar); color: white; border: none; padding: 9px 16px;
-      border-radius: 8px; cursor: pointer; font-size: 13.5px; font-weight: 600;
-      font-family: inherit; margin-top: 10px;
-    }
-    .btn-aprobar:hover { filter: brightness(1.1); }
-
-    .mensajes { flex: 1; overflow-y: auto; padding: 20px 22px; display: flex; flex-direction: column; gap: 3px; }
-    .fila-msg { display: flex; }
-    .fila-msg.saliente { justify-content: flex-end; }
-    .msg {
-      padding: 9px 13px; border-radius: 12px; margin: 3px 0; max-width: 68%;
-      font-size: 14.5px; line-height: 1.4; box-shadow: 0 1px 2px rgba(0,0,0,.04);
-    }
-    .entrante { background: white; border: 1px solid var(--borde); }
-    .saliente { background: var(--acento); color: white; }
-    .fecha { font-size: 10.5px; margin-top: 4px; opacity: .65; }
-    .entrante .fecha { color: var(--texto-claro); }
-    .saliente .fecha { color: rgba(255,255,255,.8); }
-
-    /* Eventos del sistema (menú enviado, opción elegida, etc.) — no son
-       mensajes de chat reales, van como una etiqueta centrada discreta. */
-    .evento {
-      align-self: center; font-size: 11.5px; color: var(--texto-claro);
-      background: #EFEAE1; padding: 4px 12px; border-radius: 20px; margin: 6px 0;
-    }
-
-    form.responder {
-      display: flex; gap: 10px; padding: 14px 22px; background: white;
-      border-top: 1px solid var(--borde);
-    }
-    form.responder input {
-      flex: 1; padding: 11px 14px; border: 1.5px solid var(--borde);
-      border-radius: 10px; font-size: 14.5px; font-family: inherit;
-    }
-    form.responder input:focus { outline: none; border-color: var(--acento); }
-    form.responder button {
-      padding: 11px 18px; background: var(--acento); color: white; border: none;
-      border-radius: 10px; font-weight: 600; font-size: 14px; font-family: inherit; cursor: pointer;
-    }
-    form.responder button:hover { filter: brightness(1.08); }
-
-    .chat-vacio {
-      flex: 1; display: flex; align-items: center; justify-content: center;
-      color: var(--texto-claro); font-size: 14.5px; text-align: center; padding: 24px;
-    }
-
-    /* ---------- Mobile: una vista a la vez ---------- */
-    @media (max-width: 720px) {
-      .lista { max-width: none; }
-      body.chat-abierto .lista { display: none; }
-      body:not(.chat-abierto) .chat { display: none; }
-      .volver { display: inline-block; }
-    }
-  </style>
-</head>
-<body class="{{ 'chat-abierto' if numero_activo and conversaciones.get(numero_activo) else '' }}">
-  <div class="lista">
-    <div class="lista-header">
-      <p class="marca">{{ nombre_negocio }}</p>
-      <a href="/panel/logout" class="salir">Salir</a>
-    </div>
-    <div class="buscador">
-      <input type="text" id="buscar" placeholder="Buscar conversación..." oninput="filtrar()">
-    </div>
-    <div class="conversaciones" id="lista-conversaciones">
-      {% for numero, datos in conversaciones.items() %}
-        <a href="/panel?numero={{ numero }}" class="fila {{ 'activo' if numero == numero_activo else '' }}" data-nombre="{{ datos.nombre|lower }}">
-          <span class="avatar" style="background:{{ datos.color }};">{{ datos.inicial }}</span>
-          <span class="fila-texto">
-            <span class="fila-nombre">
-              {{ datos.nombre }}
-              {% if numero in comprobantes_pendientes %}<span class="badge-pendiente">📎 pago</span>{% endif %}
-            </span>
-            <span class="fila-preview">{{ datos.ultimo_texto }}</span>
-          </span>
-        </a>
-      {% else %}
-        <p class="lista-vacia">Todavía no te escribió nadie. En cuanto llegue el primer mensaje, va a aparecer acá.</p>
-      {% endfor %}
-    </div>
-  </div>
-  <div class="chat">
-    {% if numero_activo and conversaciones.get(numero_activo) %}
-      {% set datos = conversaciones[numero_activo] %}
-      <div class="chat-header">
-        <a href="/panel" class="volver">←</a>
-        <span class="avatar" style="background:{{ datos.color }};">{{ datos.inicial }}</span>
-        <span class="chat-header-info">
-          <span class="nombre">{{ datos.nombre }}</span><br>
-          <span class="numero">{{ numero_activo }}</span>
-        </span>
-      </div>
-      {% if numero_activo in comprobantes_pendientes %}
-        {% set comp = comprobantes_pendientes[numero_activo] %}
-        <div class="comprobante">
-          <strong>📎 Comprobante pendiente de aprobación · {{ comp.fecha }}</strong>
-          {% if comp.mime_type.startswith('image') %}
-            <img src="/panel/media/{{ comp.id }}" alt="Comprobante">
-          {% else %}
-            <a class="ver" href="/panel/media/{{ comp.id }}" target="_blank">📄 Ver archivo adjunto</a>
-          {% endif %}
-          <form method="POST" action="/panel/aprobar">
-            <input type="hidden" name="numero" value="{{ numero_activo }}">
-            <input type="hidden" name="comprobante_id" value="{{ comp.id }}">
-            <button type="submit" class="btn-aprobar">✅ Aprobar y enviar manuales</button>
-          </form>
-        </div>
-      {% endif %}
-      <div class="mensajes">
-        {% for direccion, texto, fecha in datos.mensajes %}
-          {% if texto.startswith('[') and texto.endswith(']') %}
-            <div class="evento">{{ texto[1:-1] }} · {{ fecha }}</div>
-          {% else %}
-            <div class="fila-msg {{ 'saliente' if direccion == 'saliente' else '' }}">
-              <div class="msg {{ 'entrante' if direccion == 'entrante' else 'saliente' }}">
-                {{ texto }}
-                <div class="fecha">{{ fecha }}</div>
-              </div>
-            </div>
-          {% endif %}
-        {% endfor %}
-      </div>
-      <form class="responder" method="POST" action="/panel/responder">
-        <input type="hidden" name="numero" value="{{ numero_activo }}">
-        <input type="text" name="texto" placeholder="Escribí una respuesta..." required autocomplete="off">
-        <button type="submit">Enviar</button>
-      </form>
-    {% else %}
-      <div class="chat-vacio">Elegí una conversación de la lista para ver los mensajes.</div>
-    {% endif %}
-  </div>
-  <script>
-    function filtrar() {
-      var q = document.getElementById('buscar').value.toLowerCase();
-      document.querySelectorAll('#lista-conversaciones .fila').forEach(function(fila) {
-        fila.style.display = fila.dataset.nombre.includes(q) ? '' : 'none';
-      });
-    }
-  </script>
-</body>
-</html>
-"""
-
-
-def logueado():
-    return session.get("panel_ok") is True
-
-
-@app.route("/panel/login", methods=["GET", "POST"])
-def panel_login():
-    error = None
-    if request.method == "POST":
-        clave = request.form.get("clave", "")
-        if hmac.compare_digest(clave, PANEL_PASSWORD):
-            session["panel_ok"] = True
-            return redirect("/panel")
-        error = "Clave incorrecta."
-    return render_template_string(LOGIN_HTML, error=error, nombre_negocio=NOMBRE_NEGOCIO)
-
-
-@app.route("/panel/logout")
-def panel_logout():
-    session.pop("panel_ok", None)
-    return redirect("/panel/login")
-
-
-# =====================================================================
-#  Archivos propios: para productos (PDFs, etc.) que preferís alojar en
-#  tu propio servidor en vez de depender de Google Drive u otro tercero.
-#  Subí el archivo a la carpeta "archivos/" en tu repositorio, y va a
-#  quedar disponible en: https://TU-APP.onrender.com/archivos/nombre.pdf
-# =====================================================================
-CARPETA_ARCHIVOS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "archivos")
-
-
-@app.route("/archivos/<path:nombre_archivo>")
-def servir_archivo(nombre_archivo):
-    return send_from_directory(CARPETA_ARCHIVOS, nombre_archivo, as_attachment=False)
-
-
-@app.route("/panel")
-def panel():
-    if not logueado():
-        return redirect("/panel/login")
-
-    conn = sqlite3.connect(DB_PATH)
-    filas = conn.execute(
-        "SELECT numero, direccion, texto, fecha FROM mensajes ORDER BY id ASC"
-    ).fetchall()
-    contactos_filas = conn.execute("SELECT numero, nombre FROM contactos").fetchall()
-    conn.close()
-
-    nombres = {numero: nombre for numero, nombre in contactos_filas if nombre}
-
-    # Paleta de colores para los avatares. Cada contacto siempre recibe el
-    # mismo color (calculado a partir de su número), para que sea fácil
-    # reconocerlo de un vistazo en la lista.
-    PALETA_AVATARES = ["#B85C38", "#3F6E71", "#6B5B95", "#4C7A4C", "#A8763E", "#48577A"]
-
-    conversaciones = {}
-    for numero, direccion, texto, fecha in filas:
-        if numero not in conversaciones:
-            nombre = nombres.get(numero, numero)
-            conversaciones[numero] = {
-                "nombre": nombre,
-                "inicial": nombre[0].upper() if nombre else "?",
-                "color": PALETA_AVATARES[sum(numero.encode()) % len(PALETA_AVATARES)],
-                "mensajes": [],
-                "ultimo_texto": "",
-                "ultima_fecha": "",
-            }
-        conversaciones[numero]["mensajes"].append((direccion, texto, fecha))
-        # Vista previa: mostramos el último mensaje real (no un evento entre
-        # corchetes, como "[Menú de packs enviado]"), para que la lista sea útil.
-        if not (texto.startswith("[") and texto.endswith("]")):
-            conversaciones[numero]["ultimo_texto"] = texto
-        conversaciones[numero]["ultima_fecha"] = fecha
-
-    # Ordenamos la lista de conversaciones por la más reciente primero.
-    conversaciones = dict(
-        sorted(conversaciones.items(), key=lambda item: item[1]["mensajes"][-1][2], reverse=True)
-    )
-
-    numero_activo = request.args.get("numero")
-    if not numero_activo and conversaciones:
-        numero_activo = list(conversaciones.keys())[0]
-
-    comprobantes_pendientes = obtener_comprobantes_pendientes_por_numero()
-
-    return render_template_string(
-        PANEL_HTML,
-        conversaciones=conversaciones,
-        numero_activo=numero_activo,
-        comprobantes_pendientes=comprobantes_pendientes,
-        nombre_negocio=NOMBRE_NEGOCIO,
-    )
-
-
-@app.route("/panel/media/<int:comprobante_id>")
-def panel_media(comprobante_id):
-    if not logueado():
-        return redirect("/panel/login")
-    conn = sqlite3.connect(DB_PATH)
-    fila = conn.execute(
-        "SELECT media_id, mime_type FROM comprobantes WHERE id = ?", (comprobante_id,)
-    ).fetchone()
-    conn.close()
-    if not fila:
-        return "No encontrado", 404
-    media_id, mime_type = fila
-    try:
-        contenido, mime_type_real = obtener_media_de_meta(media_id)
-        return app.response_class(contenido, mimetype=mime_type_real or mime_type)
-    except Exception as e:
-        print("Error al descargar comprobante:", e)
-        return "No se pudo cargar el archivo (puede haber expirado)", 500
-
-
-@app.route("/panel/aprobar", methods=["POST"])
-def panel_aprobar():
-    if not logueado():
-        return redirect("/panel/login")
-    numero = request.form.get("numero")
-    comprobante_id = request.form.get("comprobante_id")
-    if numero and comprobante_id:
-        marcar_comprobante_aprobado(comprobante_id)
-        desactivar_modo_ia(numero)  # ya lo atendió un humano al aprobar el pago
-        cancelar_recordatorio(numero)
-        # Usamos el producto que realmente le mostramos a este cliente, no
-        # siempre "kit_maestro" (si no, se manda el archivo equivocado).
-        clave_producto_actual = PRODUCTO_ACTUAL.get(numero, next(iter(PRODUCTOS)))
-        enviar_manuales_completos(numero, clave_producto_actual)
-    return redirect(f"/panel?numero={numero}")
-
-
-@app.route("/panel/responder", methods=["POST"])
-def panel_responder():
-    if not logueado():
-        return redirect("/panel/login")
-    numero = request.form.get("numero")
-    texto = request.form.get("texto", "").strip()
-    if numero and texto:
-        desactivar_modo_ia(numero)  # ya lo está atendiendo un humano
-        cancelar_recordatorio(numero)
-        enviar_mensaje_texto(numero, texto)
-    return redirect(f"/panel?numero={numero}")
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+# ---------------------------------------------------------------------
+# 5.1) PROMOS POR TIEMPO LIMITADO
+#      ----------------------------------------------------------------
+#      Mientras la promo está vigente, el bot usa el precio de la promo y
+#      muestra el regalo sorpresa. Cuando pasa la fecha "hasta" (inclusive,
+#      hora de Argentina), vuelve SOLO al precio normal de PRODUCTOS.
+#      Para terminar la promo antes: borrá el bloque o poné una fecha pasada.
+#      OJO: el regalo tiene que estar de verdad dentro de la carpeta de
+#      entrega del producto.
+# ---------------------------------------------------------------------
+PROMOS = {
+    # Vacío: ya no hay promos con vencimiento. Para una promo con fecha, agregá acá
+    # un bloque como el de abajo (ejemplo, no está activo):
+    # "kit_maestro": {"hasta": "2026-12-31", "precio": "$5.000", "precio_valor": 5000,
+    #                 "precio_normal": "$5.500", "regalo": "...", "aviso": "⏰ Promo hasta el 31/12"},
+}
+
+
+# ---------------------------------------------------------------------
+# 6) ⭐ PALABRAS CLAVE POR PRODUCTO ⭐
+#    ACÁ ES DONDE TENÉS QUE EDITAR CUANDO QUIERAS CAMBIAR O AGREGAR
+#    PALABRAS.
+#
+#    Esto sirve para 2 casos:
+#     1) Cuando alguien entra desde un anuncio de Facebook/Instagram (el
+#        texto pre-cargado del anuncio, ej: "Hola, quiero más información
+#        sobre el pack arquitectura y construcción").
+#     2) Cuando alguien escribe directamente ese mismo tipo de frase sin
+#        venir de un anuncio.
+#
+#    En ambos casos, si el texto contiene alguna de estas palabras, el
+#    bot manda DIRECTO la ficha de ESE producto (no la lista completa).
+#
+#    Reglas simples:
+#     - La clave (a la izquierda, ej: "kit_maestro") tiene que ser
+#       EXACTAMENTE igual a la clave que usaste arriba en PRODUCTOS.
+#     - Podés poner tantas palabras/frases como quieras por producto.
+#     - No hace falta poner tildes ni mayúsculas.
+#     - Cuando agregues un producto nuevo en PRODUCTOS, agregá acá
+#       también su lista de palabras clave.
+# ---------------------------------------------------------------------
+PALABRAS_POR_PRODUCTO = {
+    "pack_gamer_pc": ["pack gamer", "pack gamer pc", "78 juegos", "juegos para pc", "videojuegos clasicos"],
+    "entrenamiento_xt2": [
+        "tapout",
+        "xt2",
+        "programa de entrenamiento",
+        "entrenamiento en casa",
+        "rutinas de ejercicio",
+        "ejercicios en casa",
+    ],
+    "kit_maestro": [
+        "arquitectura",
+        "construccion",
+        "kit maestro",
+        "pack arquitectura",
+        "manuales de construccion",
+        "arquitectura y construccion",
+    ],
+    "pack_retro_games": [
+        "retro",
+        "retro games",
+        "pack retro",
+        "juegos retro",
+        "juegos clasicos",
+        "arcade",
+        "emulador",
+        "juegos para el celular",
+    ],
+    "artes_marciales": [
+        "artes marciales",
+        "libros de artes marciales",
+        "coleccion de artes marciales",
+        "karate",
+        "judo",
+        "taekwondo",
+        "kung fu",
+        "krav maga",
+        "muay thai",
+        "defensa personal",
+    ],
+    "influir_masas": [
+        "influir en las masas",
+        "influir masas",
+        "klaus brenner",
+        "propaganda",
+        "manipulacion",
+        "psicologia de masas",
+    ],
+    "kit_invitaciones": [
+        "invitaciones",
+        "invitaciones digitales",
+        "kit premium",
+        "kit de invitaciones",
+        "plantillas canva",
+        "invitaciones para bodas",
+        "invitaciones 15 anos",
+    ],
+}
