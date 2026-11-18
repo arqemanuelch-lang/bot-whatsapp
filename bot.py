@@ -36,6 +36,13 @@ from config import (
     FRASES_ASESOR,
 )
 
+import config as _config
+
+# Qué avisos te llegan por Telegram (se cambian en config.py):
+TELEGRAM_AVISAR_TODO = getattr(_config, "TELEGRAM_AVISAR_TODO", False)  # True = avisar cada mensaje (como antes)
+TELEGRAM_AVISAR_PIDE_ALIAS = getattr(_config, "TELEGRAM_AVISAR_PIDE_ALIAS", True)  # aviso cuando pide los datos de pago
+_AVISO_ALIAS_ULTIMO = {}  # (numero, clave) -> timestamp, para no repetir el aviso
+
 app = Flask(__name__)
 
 
@@ -1258,7 +1265,11 @@ def receive_message():
             if not message_data.get("referral") and procesar_respuesta_cuestionario(from_number, msg_body):
                 return jsonify({"status": "cuestionario"}), 200
 
-            enviar_notificacion_telegram(from_number, msg_body)
+            # A Telegram solo llegan los mensajes que importan: los de alguien que ya pidió
+            # hablar con un asesor. Las preguntas sueltas ("cuánto?", "qué incluye?") las
+            # contesta el bot solo y quedan guardadas en el panel.
+            if TELEGRAM_AVISAR_TODO or esta_en_modo_ia(from_number):
+                enviar_notificacion_telegram(from_number, msg_body)
 
             referral = message_data.get("referral")
             if referral:
@@ -1280,7 +1291,8 @@ def receive_message():
 
             if opcion_id:
                 guardar_mensaje(from_number, "entrante", f"[Opción elegida] {opcion_id}")
-                enviar_notificacion_telegram(from_number, f"👆 Eligió: {opcion_id}")
+                if TELEGRAM_AVISAR_TODO:
+                    enviar_notificacion_telegram(from_number, f"👆 Eligió: {opcion_id}")
                 manejar_boton(from_number, opcion_id)
 
         elif tipo in ("image", "document"):
@@ -1651,7 +1663,13 @@ def manejar_texto(from_number, msg_body_lower):
             manejar_boton(from_number, f"comprar_pack:{clave_default}")
             return
         if any(frase in msg_normalizado for frase in FRASES_COMPRAR):
-            manejar_boton(from_number, f"comprar_pack:{clave_default}")
+            # Preguntas de precio ("cuánto sale", "el precio") reciben los datos de pago pero NO
+            # te avisan por Telegram: el aviso es solo para quien lo pide en firme.
+            pedido_firme = any(
+                p in msg_normalizado
+                for p in ("alias", "quiero pagar", "quiero comprar", "quiero adquirir", "como lo compro")
+            )
+            manejar_boton(from_number, f"comprar_pack:{clave_default}", avisar=pedido_firme)
             return
         if any(frase in msg_normalizado for frase in FRASES_VER_QUE_INCLUYE):
             manejar_boton(from_number, f"ver_resena:{clave_default}")
@@ -1770,7 +1788,7 @@ def _enviar_flujo_compra(numero, clave):
     _enviar_interactivo(numero, payload_ya_pague, "Cuando termines de pagar, tocá el botón 👇")
 
 
-def manejar_boton(from_number, opcion_id):
+def manejar_boton(from_number, opcion_id, avisar=True):
     # Si tocó cualquier botón, ya no le mandamos el recordatorio automático
     # de "¿seguís pensando en comprar?" — está interactuando activamente.
     marcar_interaccion(from_number)
@@ -1804,6 +1822,14 @@ def manejar_boton(from_number, opcion_id):
         enviar_botones_pack(from_number, clave, incluir_ver=False)
 
     elif accion == "comprar_pack" and clave in PRODUCTOS:
+        if avisar and TELEGRAM_AVISAR_PIDE_ALIAS and not TELEGRAM_AVISAR_TODO:
+            ahora = time.time()
+            if ahora - _AVISO_ALIAS_ULTIMO.get((from_number, clave), 0) > 6 * 3600:
+                _AVISO_ALIAS_ULTIMO[(from_number, clave)] = ahora
+                enviar_notificacion_telegram(
+                    from_number,
+                    f"🔥 Pidió los datos de pago: {PRODUCTOS[clave]['titulo']} ({_producto_para(from_number, clave)['precio']})",
+                )
         limpiar_esperando_captura(from_number)  # quiere comprar de nuevo: su próxima imagen sí es un comprobante
         producto = _producto_para(from_number, clave)
 
@@ -1869,7 +1895,7 @@ def manejar_boton(from_number, opcion_id):
             from_number,
             "📎 ¡Genial! Para confirmar tu compra, enviame ahora mismo la *foto o PDF* del "
             "comprobante de pago acá mismo en el chat. En cuanto lo recibamos, te mandamos "
-            "los manuales completos. 🙌",
+            "todo el material. 🙌",
         )
 
     elif accion == "ver_lista":
@@ -1877,6 +1903,7 @@ def manejar_boton(from_number, opcion_id):
 
     elif accion == "hablar_vendedor":
         activar_modo_ia(from_number)
+        enviar_notificacion_telegram(from_number, "🙋 Pidió hablar con un asesor. Desde ahora te llegan todos sus mensajes.")
         respuesta_ia = generar_respuesta_ia(
             "El cliente tocó el botón 'Hablar con asesor' porque tiene una duda. "
             "Saludalo, decile que en breve un asesor humano lo va a atender, y "
