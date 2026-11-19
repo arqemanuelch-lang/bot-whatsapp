@@ -268,27 +268,7 @@ PRODUCTOS = {
             "Mirá cuáles son 👇"
         ),
         "sin_botones_ficha": True,  # la ficha termina en el mensaje de ALIAS, sin botones
-        # A los 20 minutos sin comprar: explica cómo es la compra, para sacar dudas.
-        # A los 20 minutos sin comprar: precio especial SOLO HASTA LAS 23:59 DE HOY (el bot lo cumple de
-        # verdad y se ofrece una sola vez por cliente). Reemplaza al mensaje "recordatorio_extra".
-        "promo_hoy": {
-            "segundos": 1200,
-            "precio": "$4.500",
-            "precio_valor": 4500,
-            "sin_botones": True,
-            "texto": (
-                "¡Hola{nombre}! 🔥 Tengo una sorpresa para vos\n\n"
-                "*PRECIO ESPECIAL SOLO POR HOY*\n"
-                "El *Kit Maestro* con los 16 libros y el plus sorpresa te sale *{precio}* "
-                "en lugar de {normal}.\n\n"
-                "⏰ Vale *hasta las 23:59 de hoy*. Mañana vuelve a {normal}.\n\n"
-                "Te cuento cómo es, para que te quedes tranquilo:\n"
-                "1️⃣ Me escribís *ALIAS* y te paso los datos para transferir.\n"
-                "2️⃣ Transferís {precio} y me mandás la foto del comprobante.\n"
-                "3️⃣ Apenas lo verifico, te llega el link de Drive con todo. 📂\n\n"
-                "Si tenés cualquier duda, escribime y te respondo enseguida. 🙌"
-            ),
-        },
+        # (sin promo "solo por hoy": este producto se vende siempre al precio normal)
         # (Mensaje alternativo de 20 min; solo se usa si se quita la promo de arriba.)
         "recordatorio_extra": {
             "segundos": 1200,
@@ -414,11 +394,7 @@ PRODUCTOS = {
         "imagen": "https://i.ibb.co/bRzGx6NH/1-1.png",
         "imagen_oferta": "https://i.ibb.co/bRzGx6NH/1-1.png",
         "emoji_ficha": "🥋",
-        # Si no compra en 15 min, se le ofrece este precio SOLO HASTA LAS 23:59 DE HOY
-        # (el bot lo respeta de verdad: pasada la medianoche vuelve al precio normal).
-        # Se ofrece una sola vez por cliente.
-        "promo_hoy": {"segundos": 900, "precio": "$4.500", "precio_valor": 4500,
-                      "imagen": "https://i.ibb.co/7db2hyg6/image.png"},  # flyer que va junto con el mensaje
+        # (sin promo "solo por hoy": este producto se vende siempre al precio normal)
         "sin_recordatorio_corto": True,  # no manda nada a los 3 minutos
         "saludo": (
             "¡Hola{nombre}! 👋 Qué bueno que me escribiste. Te cuento sobre la "
@@ -477,8 +453,7 @@ PRODUCTOS = {
         "imagen": "",  # PENDIENTE: pegar el "Direct link" de imgbb (i.ibb.co/...) de la portada
         "imagen_oferta": "",
         "emoji_ficha": "🐺",
-        # Si no compra en 15 min: precio especial SOLO HASTA LAS 23:59 DE HOY (una sola vez por cliente).
-        "promo_hoy": {"segundos": 900, "precio": "$1.500", "precio_valor": 1500},
+        # (sin promo "solo por hoy": este producto se vende siempre al precio normal)
         "sin_recordatorio_corto": True,
         "descripcion_entrega": "tu libro *Influir en las masas*, listo para leer y descargar",
         "saludo": (
@@ -627,24 +602,7 @@ PRODUCTOS = {
         "titulo_boton": "🎮 Pack Gamer PC",
         "titulo_boton_compra": "🛒 Comprar ahora",
         "descripcion_corta": "78 juegos clásicos · Entrega digital",
-        # A los 20 minutos sin comprar: precio especial SOLO HASTA LAS 23:59 DE HOY
-        # (el bot lo cumple de verdad y se ofrece una sola vez por cliente).
-        "promo_hoy": {
-            "segundos": 1200,
-            "precio": "$3.900",
-            "precio_valor": 3900,
-            "texto": (
-                "¡Hola{nombre}! 😊 Entiendo que te parezca mucho…\n\n"
-                "Pero imaginate tener *78 videojuegos clásicos* a tu disposición, para jugarlos "
-                "cuando quieras y las veces que quieras. 🎮🔥 Un solo pago y son tuyos.\n\n"
-                "Por eso, *SOLO POR HOY* te lo dejamos a *{precio}* en lugar de {normal}. 🙌\n\n"
-                "⏰ Vale *hasta las 23:59 de hoy*. Mañana vuelve a {normal}.\n\n"
-                "Si lo querés, es muy fácil:\n"
-                "1️⃣ Tocá *COMPRAR AHORA* (o escribime *ALIAS*) y te paso los datos.\n"
-                "2️⃣ Transferís {precio} y me mandás el comprobante.\n"
-                "3️⃣ Apenas lo verifico, te llega el enlace con todos los juegos. 📂"
-            ),
-        },
+        # (sin promo "solo por hoy": este producto se vende siempre al precio normal)
         "precio": "$5.999",
         "precio_oferta": "$5.999",
         "precio_valor": 5999,
