@@ -80,6 +80,59 @@ COMENTARIO_LINK = ""
 # Segundos de espera entre cada mensaje cuando el cliente ve un producto (la imagen va primero).
 # Cada producto puede tener la suya con "pausa": N dentro de su bloque.
 PAUSA_MENSAJES = 10
+# SEGUIMIENTO INTENSIVO a quien pide los datos de pago (COMPRAR / ALIAS) y no manda el comprobante.
+# Cada paso es (segundos desde que pidió el alias, texto). Se repite hasta que manda el comprobante,
+# escribe "no gracias" / "no me interesa", o pasan 23 horas (WhatsApp no deja mandar mensajes
+# libres después de 24 h del último mensaje del cliente). No escribe de madrugada (0 a 8 hs).
+# Variables en los textos: {nombre} {producto} {precio} {alias} {titular}. Lista vacía [] = apagado.
+SEGUIMIENTO_ALIAS = [
+    (600,
+     "¡Hola{nombre}! 😊 ¿Cómo andás?\n\n"
+     "Te escribo porque vi que pediste los datos para *{producto}* y quería saber si pudiste hacer la "
+     "transferencia o si se te complicó algo 🤔\n\n"
+     "A veces pasa: la app del banco no deja, el alias no aparece… ¡no te preocupes! Contame y te ayudo "
+     "ahora mismo 🙌\n\n"
+     "Por las dudas te dejo todo acá, a mano 👇\n\n"
+     "👤 *Alias:* `{alias}`\n"
+     "🏦 *Titular:* {titular}\n"
+     "💰 *Total:* {precio}\n\n"
+     "📩 Apenas pagues, mandame la foto del comprobante y en un ratito lo tenés en tu celular 🚀"),
+    (3600,
+     "¡Hola{nombre}! 💛\n\n"
+     "Me quedé pensando en vos… ¿te imaginás ya teniendo *{producto}* en tu celular, listo para empezar hoy mismo? 🙌\n\n"
+     "Es *pago único de {precio}*, sin cuotas ni vueltas, y apenas me mandes el comprobante te lo envío "
+     "al instante por acá ⚡\n\n"
+     "¿Te quedó alguna duda? Preguntame lo que quieras, sin ningún compromiso 😊\n\n"
+     "👤 *Alias:* `{alias}`"),
+    (3 * 3600,
+     "¿Cómo va todo{nombre}? 😊\n\n"
+     "Quería saber si pudiste avanzar con *{producto}*. Si algo te frenó (la transferencia, el alias, el monto, "
+     "lo que sea) contámelo y lo resolvemos juntos 🤝\n\n"
+     "Me encantaría que lo tengas ya en tus manos 🎁\n\n"
+     "👤 *Alias:* `{alias}`\n"
+     "💰 *Total:* {precio}\n\n"
+     "Cuando pagues, mandame la foto del comprobante y listo 📲"),
+    (8 * 3600,
+     "¡Hola{nombre}! 👋\n\n"
+     "Tu *{producto}* sigue guardado esperándote 🎁\n\n"
+     "Sé que el día se complica y a veces las cosas quedan para después 😅 Pero si te interesa, hoy es un muy buen "
+     "momento para dar el paso: pagás *{precio}* al alias `{alias}`, me mandás el comprobante y lo recibís en el momento ⚡\n\n"
+     "Y si tenés cualquier duda, escribime que te respondo enseguida 🙌"),
+    # ÚLTIMO mensaje (a las 23 h, antes de que se cierre la ventana de 24 h de WhatsApp): descuento del 30%.
+    # El tercer valor es el % de descuento. Variables extra: {precio_descuento} {precio_normal} {descuento} {vence}
+    (23 * 3600,
+     "¡Última oportunidad{nombre}! 🎁🔥\n\n"
+     "No quiero que te quedes sin *{producto}*, así que te dejo un regalo: *{descuento}% de DESCUENTO* solo para vos 🎉\n\n"
+     "❌ ~{precio_normal}~\n"
+     "✅ *{precio_descuento}*\n\n"
+     "⏰ Válido hasta las *{vence} hs*.\n\n"
+     "Para aprovecharlo, transferí al alias `{alias}` (titular: {titular}) y mandame el comprobante por acá. "
+     "Lo recibís al instante 🚀\n\n"
+     "Y si ya no te interesa, no pasa nada: escribime *\"no gracias\"* y no te molesto más 🙏😊",
+     30),
+]
+# Horas que dura el descuento final (se cuenta desde que se manda el mensaje).
+HORAS_VALIDEZ_DESCUENTO = 12
 SEGUNDOS_PEDIR_COMENTARIO = 120   # cuánto espera después de entregar (120 = 2 minutos)
 
 
