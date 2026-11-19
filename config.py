@@ -18,7 +18,7 @@ import os
 # ---------------------------------------------------------------------
 # 1) DATOS GENERALES DEL NEGOCIO
 # ---------------------------------------------------------------------
-NOMBRE_NEGOCIO = "Droply IA"
+NOMBRE_NEGOCIO = "DROPLY | Biblioteca Digital"
 
 # URL pública de tu propio servidor (Render), para poder alojar archivos
 # propios en vez de depender de Google Drive. Si no configurás la
@@ -33,14 +33,14 @@ PALABRA_CLAVE_MENU = "DROPLY"
 # Mensaje de bienvenida que se manda junto con la lista de productos,
 # la primera vez que alguien saluda ("hola", "buenas", etc.)
 MENSAJE_BIENVENIDA_MENU = (
-    "¡Hola! 👋 Bienvenido a Droply IA. Elegí el producto que te interesa:"
+    "¡Hola! 👋 Bienvenido a DROPLY. Elegí el producto que te interesa:"
 )
 
 # Bienvenida SIN productos: se manda cuando alguien saluda ("hola", etc.) sin
 # haber tocado un anuncio ni escrito el nombre de un producto. La lista de
 # productos aparece recién cuando toca el botón.
 MENSAJE_BIENVENIDA_SIMPLE = (
-    "¡Hola{nombre}! 👋 Qué bueno tenerte por acá. Soy el asistente de Droply IA "
+    "¡Hola{nombre}! 👋 Qué bueno tenerte por acá. Soy el asistente de DROPLY "
     "y estoy para ayudarte. 😊\n\n"
     "Tocá el botón de abajo y mirá lo que tenemos para vos 👇"
 )
@@ -50,7 +50,7 @@ TEXTO_BOTON_LISTA = "📋 Ver productos"   # máx. 20 caracteres
 # comprobante si ya pagó y no obtuvo respuesta a tiempo. También se puede
 # configurar por variable de entorno NUMERO_RESPALDO en Render (si está
 # seteada ahí, tiene prioridad sobre este valor).
-NUMERO_RESPALDO_DEFAULT = ""
+NUMERO_RESPALDO_DEFAULT = "5493487555205"
 
 # Números a los que NO se les manda el seguimiento automático (avisos de 5 min y
 # 1 hora). Es por prefijo de teléfono (código de país + área). Si escriben, el
@@ -63,8 +63,15 @@ PREFIJOS_SIN_SEGUIMIENTO = ["54911", "5411"]
 # Mensaje final de agradecimiento (se manda un rato después de entregar la compra).
 # Pegá acá el link de tu página/Facebook/Instagram donde quieras el comentario.
 # Si lo dejás vacío "", el mensaje sale igual pero sin link.
+# Link de la publicación/anuncio donde el cliente deja su comentario. Se manda a los
+# SEGUNDOS_PEDIR_COMENTARIO después de aprobar el pago (a todos los productos que no
+# tengan su propio "mensaje_comentario"). Un producto puede tener su link propio con
+# "link_comentario": "https://..." dentro de su bloque.
 COMENTARIO_LINK = ""
-SEGUNDOS_PEDIR_COMENTARIO = 120   # cuánto espera después de entregar
+# Segundos de espera entre cada mensaje cuando el cliente ve un producto (la imagen va primero).
+# Cada producto puede tener la suya con "pausa": N dentro de su bloque.
+PAUSA_MENSAJES = 10
+SEGUNDOS_PEDIR_COMENTARIO = 120   # cuánto espera después de entregar (120 = 2 minutos)
 
 
 # ---------------------------------------------------------------------
@@ -84,7 +91,7 @@ DATOS_TRANSFERENCIA = {
 #    asesor y todavía no lo atendió un humano.
 # ---------------------------------------------------------------------
 PROMPT_SISTEMA_IA = (
-    "Sos un asistente de ventas por WhatsApp para Droply IA, un negocio que vende "
+    "Sos un asistente de ventas por WhatsApp para DROPLY, un negocio que vende "
     "productos digitales. Entre sus productos están el PACK GAMER de 78 videojuegos para PC ($5.999, precio de oferta), el Kit Maestro de Arquitectura y "
     "Construcción (16 manuales técnicos en PDF, $5.500), la Colección de Libros de Artes Marciales (25 carpetas de disciplinas, más de 1 GB de material digital, $6.500), el Pack Retro Games (juegos clásicos para el celular, $3.000), TAPOUT XT, programa de entrenamiento desde casa en video ($8.999). "
     "Respondé breve, claro y amable en español. Si el cliente pregunta por algo que no "
@@ -585,7 +592,7 @@ PRODUCTOS = {
         "texto_entrega": "el enlace digital del PACK GAMER",
         "descripcion_entrega": "el PACK GAMER — 78 videojuegos para PC",
         "link_carpeta_final": "https://www.1024tera.com/spanish/sharing/link?surl=VHEDjhXw_J7mb5qF02usvA",
-        "mensaje_entrega": "🎉 *¡PAGO CONFIRMADO!*\n\n🎮 ¡Gracias por comprar el *PACK GAMER*!\n\n📦 Tu colección de 78 videojuegos y ediciones para PC está lista.\n\n🔗 *ENLACE DE ENTREGA:*\n{link}\n\n💻 Accedé al enlace para consultar y descargar los archivos.\n\n🙌 ¡Gracias por confiar en Droply IA!",
+        "mensaje_entrega": "🎉 *¡PAGO CONFIRMADO!*\n\n🎮 ¡Gracias por comprar el *PACK GAMER*!\n\n📦 Tu colección de 78 videojuegos y ediciones para PC está lista.\n\n🔗 *ENLACE DE ENTREGA:*\n{link}\n\n💻 Accedé al enlace para consultar y descargar los archivos.\n\n🙌 ¡Gracias por confiar en DROPLY!",
         "saludo": "¡Hola! 👋🎮 ¡Gracias por tu interés en nuestro *PACK GAMER — 78 VIDEOJUEGOS CLÁSICOS PARA PC*!\n\n🕹️ Reviví los grandes clásicos que marcaron generaciones. Acción, aventura, estrategia, carreras, terror y mucho más.\n\n👇 ¡Mirá algunos de los juegos que incluye!",
         "texto_incluye": "🎮 *ALGUNOS DE LOS JUEGOS DEL PACK*\n\n🏙️ GTA San Andreas\n🔫 Counter-Strike 1.6\n⚔️ Age of Empires I, II y III\n🧟 Resident Evil\n🏎️ Need for Speed Underground 2\n💥 Call of Duty\n🕹️ Half-Life y Half-Life 2\n🏡 The Sims\n🌻 Plants vs. Zombies\n\n🔥 ¡Y muchos títulos más!\n\n💻 *Para PC*\n📚 *78 videojuegos y ediciones en el catálogo.*",
         "mensaje_precio": "🎮 *¡VOLVÉ A VIVIR LOS GRANDES CLÁSICOS!*\n\n🕹️ GTA San Andreas, Counter-Strike, Age of Empires, Need for Speed y muchos más te están esperando. 🔥\n\n💻 *PACK GAMER PARA PC*\n🎮 78 videojuegos y ediciones en el catálogo.\n\n💰 *PRECIO DE OFERTA: $5.999 ARS*\n\n✅ Un solo pago, sin suscripciones.\n📂 Entrega digital por TeraBox después de confirmar el pago.\n\n🚀 *¡Tu próxima aventura gamer empieza acá!*\n\n👇 Tocá el botón *COMPRAR AHORA*.\n\n✍️ O si preferís, escribí *ALIAS* y te paso los datos para que puedas realizar el pago. 🙌",
@@ -681,7 +688,6 @@ PRODUCTOS = {
         "precio_valor": 8999,
         "imagen": "",  # PENDIENTE: "Direct link" de imgbb (i.ibb.co/...) de una portada propia
         "imagen_oferta": "",
-        "pausa": 6,  # segundos entre mensaje y mensaje (parece más humano)
         "imagen_muestra": "https://i.ibb.co/vCBXW7qt/A-A.png",  # foto de muestra, se manda antes del precio
         "emoji_ficha": "💪",
         # PROMO "solo por hoy": todavía sin definir (a pedido, con el precio nuevo de $8.999).
