@@ -752,7 +752,12 @@ PRODUCTOS = {
             "💰 *Pack completo: $8.999 ARS.*"
         ),
         "mensaje_precio": (
-            "🎬 *Mirá una muestra del programa (rutina de cardio):*\n"
+            "🎬 *Mirá 3 muestras del programa, para que veas cómo se entrena:*\n\n"
+            "1️⃣ *Abdominales extremas* 🔥\n"
+            "https://drive.google.com/file/d/1z9Jg_pp3ihwSl8Bw9fNG84x-DOFbbeoP/view?usp=sharing\n\n"
+            "2️⃣ *Boxeo thailandés* 🥊\n"
+            "https://drive.google.com/file/d/1gSALtUQkB9Yb9t4At6Z4Gu4tAmm3ZKYG/view?usp=sharing\n\n"
+            "3️⃣ *Rutina de cardio* 💪\n"
             "https://drive.google.com/file/d/1Xn3cqmfbXJ7096vOQm_pP6YEkXJZf2t_/view?usp=sharing\n\n"
             "📲 Tocá *QUIERO* (o escribilo) y te cuento cómo recibís el acceso y te paso el ALIAS 👇"
         ),
