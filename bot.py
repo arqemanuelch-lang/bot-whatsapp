@@ -39,6 +39,7 @@ from config import (
 import config as _config
 
 # Qué avisos te llegan por Telegram (se cambian en config.py):
+PAUSA_MENSAJES = getattr(_config, "PAUSA_MENSAJES", 10)  # segundos entre mensaje y mensaje en las presentaciones
 TELEGRAM_AVISAR_TODO = getattr(_config, "TELEGRAM_AVISAR_TODO", False)  # True = avisar cada mensaje (como antes)
 TELEGRAM_AVISAR_PIDE_ALIAS = getattr(_config, "TELEGRAM_AVISAR_PIDE_ALIAS", True)  # aviso cuando pide los datos de pago
 _AVISO_ALIAS_ULTIMO = {}  # (numero, clave) -> timestamp, para no repetir el aviso
@@ -402,6 +403,7 @@ def _producto_para(numero, clave):
 
 
 def _enviar_promo_hoy(numero, clave):
+    PAUSA = PAUSA_MENSAJES
     producto = PRODUCTOS.get(clave)
     promo = (producto or {}).get("promo_hoy")
     if not producto or not promo:
@@ -411,7 +413,7 @@ def _enviar_promo_hoy(numero, clave):
     activar_promo_hoy(numero, clave, promo["precio"], promo["precio_valor"])
     if str(promo.get("imagen", "")).strip():
         enviar_imagen(numero, promo["imagen"])
-        time.sleep(2)
+        time.sleep(PAUSA)
     if promo.get("texto"):
         # Texto propio del producto (config.py). Variables: {nombre} {precio} {normal}
         enviar_mensaje_texto(
@@ -421,7 +423,7 @@ def _enviar_promo_hoy(numero, clave):
             .replace("{precio}", promo["precio"])
             .replace("{normal}", producto["precio"]),
         )
-        time.sleep(2)
+        time.sleep(PAUSA)
     else:
         enviar_mensaje_texto(
             numero,
@@ -432,13 +434,13 @@ def _enviar_promo_hoy(numero, clave):
             f"⏰ Este precio vale *hasta las 23:59 de hoy*. Mañana vuelve a {producto['precio']}.\n\n"
             "Mirá todo lo que recibís 👇",
         )
-        time.sleep(2)
+        time.sleep(PAUSA)
         if producto.get("texto_incluye"):
             enviar_mensaje_texto(numero, producto["texto_incluye"])
-            time.sleep(2)
+            time.sleep(PAUSA)
     enviar_mensaje_texto(numero, "✍️ ¿Te lo llevás? Escribime *ALIAS* y te paso los datos para transferir. ¡Es rápido! 👇")
     if not promo.get("sin_botones"):
-        time.sleep(2)
+        time.sleep(PAUSA)
         enviar_botones_pack(numero, clave, texto="O si preferís, tocá el botón 👇", incluir_ver=False)
 
 
@@ -1405,10 +1407,16 @@ def receive_message():
                 enviar_notificacion_telegram_comprobante(from_number, comprobante_id, clave_producto_actual)
                 producto_actual = PRODUCTOS.get(clave_producto_actual, {})
                 texto_cantidad = _texto_entrega(producto_actual) if producto_actual else "tu compra"
+                _wa_atencion = f"https://wa.me/{NUMERO_RESPALDO}" if str(NUMERO_RESPALDO).strip() else ""
                 enviar_mensaje_texto(
                     from_number,
-                    "¡Recibimos tu comprobante! 📎 En breve lo revisamos y te enviamos "
-                    f"{texto_cantidad}. Gracias por tu paciencia.",
+                    "📎 *¡Recibimos tu comprobante de pago!*\n\n"
+                    "⏳ Tu pedido está *pendiente de verificación*.\n\n"
+                    "Te pedimos unos minutos de paciencia. Revisamos el pago y, una vez aprobado, "
+                    f"te enviamos {texto_cantidad}.\n\n"
+                    + (f"🙋 ¿Algún inconveniente con el pago o la entrega? Escribinos acá: {_wa_atencion}\n\n" if _wa_atencion else "")
+                    + "💙 ¡Muchas gracias por elegir *DROPLY*!\n"
+                    "_DROPLY | Biblioteca Digital_",
                 )
 
         else:
@@ -1807,7 +1815,7 @@ def _enviar_flujo_compra(numero, clave):
     if not producto:
         return
 
-    PAUSA_ENTRE_MENSAJES = 5  # segundos
+    PAUSA_ENTRE_MENSAJES = PAUSA_MENSAJES  # segundos
 
     # La imagen del banner de oferta va PRIMERO que todo (sin caption: el
     # texto va aparte, así si la imagen falla, los mensajes igual llegan).
@@ -2133,18 +2141,19 @@ def _enviar_botones_gamer(to, clave, tipo):
 
 
 def _secuencia_pack_gamer(to, clave):
+    PAUSA = PAUSA_MENSAJES
     producto = PRODUCTOS[clave]
     if producto.get("imagen"):
         enviar_imagen(to, producto["imagen"])
-        time.sleep(2)
+        time.sleep(PAUSA)
     enviar_mensaje_texto(to, producto["saludo"])
-    time.sleep(2)
+    time.sleep(PAUSA)
     enviar_mensaje_texto(to, producto["texto_incluye"])
-    time.sleep(1)
+    time.sleep(PAUSA)
     _enviar_botones_gamer(to, clave, "informacion")
-    time.sleep(3)
+    time.sleep(PAUSA)
     enviar_mensaje_texto(to, producto["mensaje_precio"])
-    time.sleep(1)
+    time.sleep(PAUSA)
     _enviar_botones_gamer(to, clave, "compra")
     programar_recordatorio_compra(to, clave)
 
@@ -2165,7 +2174,8 @@ def _enviar_secuencia_ficha(to, clave):
         _secuencia_oferta_libros(to, clave)
         return
 
-    PAUSA = producto.get("pausa", 3)  # segundos entre mensaje y mensaje (se puede cambiar por producto con "pausa")
+    PAUSA = producto.get("pausa", PAUSA_MENSAJES)  # segundos entre mensaje y mensaje (se puede cambiar por producto con "pausa")
+    muestra_ya_enviada = False
 
     # Por defecto, cada producto manda UNA sola imagen en la ficha (prioriza
     # la de oferta si existe, si no la de portada) — así se comportaba el
@@ -2193,6 +2203,9 @@ def _enviar_secuencia_ficha(to, clave):
             time.sleep(PAUSA)
     else:
         imagen_url = producto.get("imagen_oferta") or producto.get("imagen")
+        if not imagen_url and str(producto.get("imagen_muestra", "")).strip():
+            imagen_url = producto["imagen_muestra"]  # sin portada: la foto de muestra va PRIMERO
+            muestra_ya_enviada = True
         if imagen_url:
             enviar_imagen(to, imagen_url)
             time.sleep(PAUSA)
@@ -2240,7 +2253,7 @@ def _enviar_secuencia_ficha(to, clave):
     # Mensaje 3: precio + instrucción para comprar. Si el producto tiene
     # "mensaje_precio" en config.py, se usa ese texto tal cual
     # (personalizado). Si no, se arma con la plantilla genérica de siempre.
-    if str(producto.get("imagen_muestra", "")).strip():
+    if str(producto.get("imagen_muestra", "")).strip() and not muestra_ya_enviada:
         enviar_imagen(to, producto["imagen_muestra"])  # foto de muestra, antes del precio
         time.sleep(PAUSA)
     if producto.get("mensaje_precio"):
@@ -2254,7 +2267,7 @@ def _enviar_secuencia_ficha(to, clave):
         )
 
     # Botón directo para comprar (así no tiene que escribir nada).
-    time.sleep(2)
+    time.sleep(PAUSA)
     enviar_botones_pack(to, clave, texto="Tocá el botón y te paso los datos para pagar 👇")
 
     # Si en 3 minutos / 1 hora no escribe nada más, le mandamos un recordatorio.
@@ -2268,7 +2281,7 @@ def _secuencia_oferta_libros(to, clave):
     (título + autor en el pie de la imagen) -> libros sin portada en lista ->
     regalos -> precio con botón de compra."""
     producto = PRODUCTOS[clave]
-    PAUSA = producto.get("pausa", 3)
+    PAUSA = producto.get("pausa", PAUSA_MENSAJES)
 
     # 0) Imagen de portada del producto (el banner), arriba de todo.
     imagen_inicio = producto.get("imagen_oferta") or producto.get("imagen")
@@ -2306,7 +2319,7 @@ def _secuencia_oferta_libros(to, clave):
                 to, manual["imagen"],
                 caption=f"📘 *{manual['titulo']}*\n✍️ {manual['autor']}",
             )
-            time.sleep(2)
+            time.sleep(PAUSA)
         else:
             sin_portada.append(manual)
 
@@ -2326,7 +2339,7 @@ def _secuencia_oferta_libros(to, clave):
         for manual in libros_regalo:
             if enviar_portadas and str(manual.get("imagen", "")).strip():
                 enviar_imagen(to, manual["imagen"], caption=f"🎁 *{manual['titulo']}*\n✍️ {manual['autor']}")
-                time.sleep(2)
+                time.sleep(PAUSA)
             else:
                 regalo_sin_portada.append(manual)
         titulo_regalo = (
@@ -2356,7 +2369,7 @@ def _secuencia_oferta_libros(to, clave):
     if bonus:
         if str(bonus.get("imagen", "")).strip():
             enviar_imagen(to, bonus["imagen"], caption=f"🎁 *DE REGALO:*\n📘 *{bonus['titulo']}*")
-            time.sleep(2)
+            time.sleep(PAUSA)
         else:
             regalos_texto.insert(0, bonus["titulo"])
     if regalos_texto:
@@ -2374,10 +2387,10 @@ def _secuencia_oferta_libros(to, clave):
         enviar_mensaje_texto(to, producto["mensaje_precio"])
     else:
         enviar_mensaje_texto(to, f"💰 *Precio:* {producto['precio']}")
-    time.sleep(2)
+    time.sleep(PAUSA)
     enviar_mensaje_texto(to, producto.get("texto_alias") or "✍️ Escribí *ALIAS* y te paso todos los datos para transferir. 👇")
     if not producto.get("sin_botones_ficha"):
-        time.sleep(2)
+        time.sleep(PAUSA)
         enviar_botones_pack(to, clave, texto=producto.get("texto_botones") or "O si preferís, tocá el botón 👇")
 
     programar_recordatorio_compra(to, clave)
@@ -2609,7 +2622,7 @@ def enviar_manuales_completos(to, clave="kit_maestro"):
             import config as _cfg
             t = threading.Timer(
                 getattr(_cfg, "SEGUNDOS_PEDIR_COMENTARIO", 120),
-                _pedir_comentario, args=(to, getattr(_cfg, "COMENTARIO_LINK", "")),
+                _pedir_comentario, args=(to, producto.get("link_comentario") or getattr(_cfg, "COMENTARIO_LINK", "")),
             )
             t.daemon = True
             t.start()
@@ -2660,6 +2673,8 @@ def _pedir_comentario(to, link):
     )
     if str(link).strip():
         texto += f"\n\n👉 {link}"
+        texto += "\n\n📸 Cuando lo dejes, mandame una captura de tu comentario por acá, por favor. ¡Gracias! 🙏"
+        marcar_esperando_captura(to)  # la próxima imagen es la captura, no un comprobante
     enviar_mensaje_texto(to, texto)
 
 
