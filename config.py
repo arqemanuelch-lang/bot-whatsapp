@@ -40,9 +40,18 @@ MENSAJE_BIENVENIDA_MENU = (
 # haber tocado un anuncio ni escrito el nombre de un producto. La lista de
 # productos aparece recién cuando toca el botón.
 MENSAJE_BIENVENIDA_SIMPLE = (
-    "¡Hola{nombre}! 👋 Qué bueno tenerte por acá. Soy el asistente de DROPLY "
-    "y estoy para ayudarte. 😊\n\n"
-    "Tocá el botón de abajo y mirá lo que tenemos para vos 👇"
+    "¡Hola{nombre}! 👋 ¿Cómo estás? Qué bueno que me escribiste. 😊\n\n"
+    "Decime, ¿qué producto te interesa?\n\n"
+    "👉 Podés elegirlo tocando el botón de abajo, o escribirme tu pregunta y te respondo. 👇"
+)
+
+# Si después del saludo la persona no toca el botón ni escribe nada, a los 3 minutos
+# se le manda UN mensaje más (una sola vez). Poné SEGUNDOS_SEGUIMIENTO_BIENVENIDA = 0 para apagarlo.
+SEGUNDOS_SEGUIMIENTO_BIENVENIDA = 180
+MENSAJE_SEGUIMIENTO_BIENVENIDA = (
+    "¡Hola{nombre}! 😊 Sigo por acá esperando.\n\n"
+    "¿Cuál es el producto que te interesa? Tocá *📋 Ver productos* en el mensaje de arriba "
+    "o escribime y te cuento todo. 🙌"
 )
 TEXTO_BOTON_LISTA = "📋 Ver productos"   # máx. 20 caracteres
 
@@ -801,6 +810,8 @@ PALABRAS_POR_PRODUCTO = {
         "xt2",
         "programa de entrenamiento",
         "entrenamiento en casa",
+        "entrena desde casa",
+        "entrenar desde casa",
         "rutinas de ejercicio",
         "ejercicios en casa",
     ],
