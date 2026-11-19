@@ -157,7 +157,7 @@ FRASES_COMPRAR = [
 #       pago (es el cliente más "caliente"). Poné False si tampoco lo querés.
 #   Si ponés TELEGRAM_AVISAR_TODO = True, vuelve a avisar todo como antes.
 # ---------------------------------------------------------------------
-TELEGRAM_AVISAR_TODO = False
+TELEGRAM_AVISAR_TODO = True  # True = te llega cada mensaje y cada botón que toque un cliente
 TELEGRAM_AVISAR_PIDE_ALIAS = True
 
 
