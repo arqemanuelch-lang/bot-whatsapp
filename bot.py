@@ -643,10 +643,11 @@ def programar_recordatorio_compra(numero, clave):
             texto_contenido = "todo el contenido, listo para vos. 📚"
         _armar_recordatorio(
             numero, clave,
-            f"¡Hola{_nombre_saludo(numero)}! 😊 ¿Te quedó alguna duda sobre *{producto['titulo']}*?\n\n"
-            f"Te cuento que lo tenés por solo *{producto['precio']}*: "
+            f"¡Hola{_nombre_saludo(numero)}! 😊 ¿Cómo va todo?\n\n"
+            f"Me quedé pensando si te quedó alguna duda sobre *{producto['titulo']}* 🤔\n\n"
+            f"Te cuento que lo tenés por solo *{producto['precio']}* (pago único 💳): "
             f"{texto_contenido}\n\n"
-            "Si te interesa, tocá el botón de abajo y te paso los datos. ¡Estoy para ayudarte! 🙌",
+            "Si te interesa, tocá el botón de abajo y te paso los datos. ¡Estoy para ayudarte! 🙌💛",
         )
 
     def _recordatorio_largo():
@@ -666,9 +667,10 @@ def programar_recordatorio_compra(numero, clave):
         # con la oferta especial (imagen + $5.500 + libros + datos de pago).
         if clave == "pack_gamer_pc":
             enviar_mensaje_texto(numero,
-                "🎮 ¡Los 78 videojuegos clásicos para PC te esperan! 🔥\n\n"
-                f"💰 *Precio de oferta: {_producto_para(numero, clave)['precio']} ARS*\n\n"
-                "✍️ Escribí *ALIAS* y te paso los datos para que puedas realizar el pago. 🙌")
+                f"¡Hola{_nombre_saludo(numero)}! 🎮 Los *78 videojuegos clásicos para PC* siguen esperándote 🕹️🔥\n\n"
+                "Imaginate tenerlos todos en tu compu, listos para jugar cuando quieras y las veces que quieras 😍\n\n"
+                f"💰 *Pagás una sola vez {_producto_para(numero, clave)['precio']} ARS* y son tuyos ✅\n\n"
+                "✍️ Escribime *ALIAS* y te paso los datos para pagar. ¡Estoy para ayudarte! 🙌💛")
             _enviar_botones_gamer(numero, clave, "compra")
         else:
             _enviar_flujo_compra(numero, clave)
@@ -1982,10 +1984,12 @@ def _enviar_flujo_compra(numero, clave):
         texto_intro_oferta = ""
     enviar_mensaje_texto(
         numero,
+        f"¡Hola{_nombre_saludo(numero)}! 💛 Te escribo de nuevo porque no quiero que te quedes sin "
+        f"*{producto['titulo']}* 🎁\n\n"
         "🔥 *Todo esto es tuyo por solo "
         f"{precio_oferta}* 🔥\n\n"
-        f"El *{producto['titulo']}* completo, {texto_intro_oferta}"
-        "con acceso inmediato después de tu pago.\n\n"
+        f"El pack completo, {texto_intro_oferta}"
+        "con acceso inmediato apenas hacés el pago ⚡\n\n"
         "Te dejo el detalle de todo lo que te llevás 👇",
     )
     time.sleep(PAUSA_ENTRE_MENSAJES)
@@ -2005,8 +2009,8 @@ def _enviar_flujo_compra(numero, clave):
             lineas_libros.append("\n🎁 *Y de regalo, además:*")
             for regalo in regalos_resumen:
                 lineas_libros.append(f"🎁 {regalo}")
-        lineas_libros.append(f"\n💰 *Todo por {precio_oferta}*")
-        lineas_libros.append("⚡ Es el precio vigente ahora y puede subir sin aviso.")
+        lineas_libros.append(f"\n💰 *Todo por {precio_oferta}* (pago único 💳)")
+        lineas_libros.append("🙌 ¡Y lo recibís al instante, directo en tu celular!")
         enviar_mensaje_texto(numero, "\n".join(lineas_libros))
         time.sleep(PAUSA_ENTRE_MENSAJES)
     elif producto.get("que_incluye"):
@@ -2020,13 +2024,14 @@ def _enviar_flujo_compra(numero, clave):
     texto_entrega = _texto_entrega(producto)
     enviar_mensaje_texto(
         numero,
-        "💸 *Podés abonar por transferencia o Lemon:*\n\n"
+        "💸 *Para que te lo lleves hoy, podés abonar por transferencia o Lemon:*\n\n"
         f"👉 *Alias:* `{DATOS_TRANSFERENCIA['alias']}`\n"
         f"👉 *CVU:* `{DATOS_TRANSFERENCIA['cvu']}`\n"
         f"👉 *Lemontag:* `{DATOS_TRANSFERENCIA['lemontag']}`\n"
         f"👤 *Titular:* {DATOS_TRANSFERENCIA['titular']}\n\n"
         "📩 Una vez realizado el pago, enviame el comprobante (foto o PDF) acá mismo "
-        f"en el chat y te mando {texto_entrega} al instante.",
+        f"en el chat y te mando {texto_entrega} al instante. 🚀\n\n"
+        "Si tenés cualquier duda o algo se complica, escribime y te ayudo enseguida 🙌💛",
     )
     time.sleep(PAUSA_ENTRE_MENSAJES)
 
