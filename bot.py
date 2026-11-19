@@ -2060,7 +2060,7 @@ def _enviar_secuencia_ficha(to, clave):
         _secuencia_oferta_libros(to, clave)
         return
 
-    PAUSA = 3  # segundos entre mensaje y mensaje
+    PAUSA = producto.get("pausa", 3)  # segundos entre mensaje y mensaje (se puede cambiar por producto con "pausa")
 
     # Por defecto, cada producto manda UNA sola imagen en la ficha (prioriza
     # la de oferta si existe, si no la de portada) — así se comportaba el
@@ -2135,6 +2135,9 @@ def _enviar_secuencia_ficha(to, clave):
     # Mensaje 3: precio + instrucción para comprar. Si el producto tiene
     # "mensaje_precio" en config.py, se usa ese texto tal cual
     # (personalizado). Si no, se arma con la plantilla genérica de siempre.
+    if str(producto.get("imagen_muestra", "")).strip():
+        enviar_imagen(to, producto["imagen_muestra"])  # foto de muestra, antes del precio
+        time.sleep(PAUSA)
     if producto.get("mensaje_precio"):
         enviar_mensaje_texto(to, producto["mensaje_precio"])
     else:
@@ -2160,7 +2163,7 @@ def _secuencia_oferta_libros(to, clave):
     (título + autor en el pie de la imagen) -> libros sin portada en lista ->
     regalos -> precio con botón de compra."""
     producto = PRODUCTOS[clave]
-    PAUSA = 3
+    PAUSA = producto.get("pausa", 3)
 
     # 0) Imagen de portada del producto (el banner), arriba de todo.
     imagen_inicio = producto.get("imagen_oferta") or producto.get("imagen")
@@ -2259,6 +2262,9 @@ def _secuencia_oferta_libros(to, clave):
         time.sleep(PAUSA)
 
     # 6) Precio + botón de compra.
+    if str(producto.get("imagen_muestra", "")).strip():
+        enviar_imagen(to, producto["imagen_muestra"])
+        time.sleep(PAUSA)
     if producto.get("mensaje_precio"):
         enviar_mensaje_texto(to, producto["mensaje_precio"])
     else:
