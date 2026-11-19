@@ -648,7 +648,7 @@ PRODUCTOS = {
         "precio": "$5.999",
         "precio_oferta": "$5.999",
         "precio_valor": 5999,
-        "imagen": "https://i.ibb.co/KcY1C1Dc/image.png",
+        "imagen": "https://i.ibb.co/V1HcNMh/018467ac-a5a7-4c5c-a336-4d4f26313206.png",
         "manuales": [],
         "que_incluye": ["78 videojuegos y ediciones para PC", "Entrega digital por TeraBox tras aprobar el pago"],
         "texto_entrega": "el enlace digital del PACK GAMER",
