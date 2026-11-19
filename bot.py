@@ -145,6 +145,7 @@ RECORDATORIOS_PENDIENTES = {}  # numero -> threading.Timer (el de 3 minutos)
 RECORDATORIOS_PENDIENTES_LARGO = {}  # numero -> threading.Timer (el de 1 hora)
 RECORDATORIOS_PENDIENTES_MEDIO = {}  # numero -> threading.Timer (el de 10 minutos, solo con promo de bonus)
 ULTIMA_INTERACCION = {}  # numero -> timestamp (time.time()) de la última acción del usuario
+ALIAS_PENDIENTES = {}  # numero -> Timer del recordatorio "pediste el alias pero no pagaste"
 class _ProductoActual(dict):
     """numero -> clave del último producto que el cliente vio o tocó. Se guarda
     también en la base, así sobrevive a un reinicio del servidor (si el disco
@@ -204,6 +205,9 @@ def cancelar_recordatorio(numero):
     timer_medio = RECORDATORIOS_PENDIENTES_MEDIO.pop(numero, None)
     if timer_medio:
         timer_medio.cancel()
+    timer_alias = ALIAS_PENDIENTES.pop(numero, None)
+    if timer_alias:
+        timer_alias.cancel()
 
 
 def _armar_recordatorio(numero, clave, texto_mensaje):
@@ -356,9 +360,9 @@ def promo_hoy_ya_ofrecida(numero, clave):
         return False
 
 
-def activar_promo_hoy(numero, clave, precio, precio_valor):
+def activar_promo_hoy(numero, clave, precio, precio_valor, vence_ts=None):
     ahora = datetime.now(timezone(timedelta(hours=-3)))  # hora de Argentina
-    vence = ahora.replace(hour=23, minute=59, second=59, microsecond=0).timestamp()
+    vence = vence_ts or ahora.replace(hour=23, minute=59, second=59, microsecond=0).timestamp()
     conn = _tabla_promos_hoy()
     conn.execute(
         "INSERT OR REPLACE INTO promos_hoy (numero, clave, precio, precio_valor, vence) VALUES (?, ?, ?, ?, ?)",
@@ -484,6 +488,131 @@ def _enviar_recordatorio_fuerte(numero, clave):
     enviar_mensaje_texto(numero, "✍️ ¿Lo querés? Escribime *ALIAS* y te paso los datos para transferir. ¡Es rápido! 👇")
     time.sleep(2)
     enviar_botones_pack(numero, clave, texto="Si preferís, tocá el botón 👇", incluir_ver=False)
+
+
+def _tabla_no_molestar():
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("CREATE TABLE IF NOT EXISTS no_molestar (numero TEXT PRIMARY KEY)")
+    conn.commit()
+    return conn
+
+
+def esta_no_molestar(numero):
+    conn = _tabla_no_molestar()
+    fila = conn.execute("SELECT 1 FROM no_molestar WHERE numero = ?", (numero,)).fetchone()
+    conn.close()
+    return bool(fila)
+
+
+def marcar_no_molestar(numero):
+    conn = _tabla_no_molestar()
+    conn.execute("INSERT OR IGNORE INTO no_molestar (numero) VALUES (?)", (numero,))
+    conn.commit(); conn.close()
+
+
+def quitar_no_molestar(numero):
+    conn = _tabla_no_molestar()
+    conn.execute("DELETE FROM no_molestar WHERE numero = ?", (numero,))
+    conn.commit(); conn.close()
+
+
+FRASES_NO_MOLESTAR = (
+    "no me interesa", "no gracias", "ya no quiero", "no quiero comprar", "no me escribas",
+    "no me escriban", "dejame de escribir", "dejen de escribir", "no molestes", "no molesten",
+    "basta", "stop", "darme de baja", "no me manden mas", "no me mandes mas",
+)
+
+
+def _cfg_desc():
+    import config as _cfg
+    return _cfg
+
+
+def programar_recordatorio_alias(numero, clave):
+    """SEGUIMIENTO INTENSIVO para quien pidió los datos de pago (COMPRAR / ALIAS) y no manda el
+    comprobante: una serie de mensajes (config.py: SEGUIMIENTO_ALIAS) que se repiten hasta que
+    manda el comprobante, escribe que no le interesa, o se cierra la ventana de 24 horas de
+    WhatsApp (pasado ese tiempo WhatsApp no deja mandar mensajes libres). Nunca de noche."""
+    try:
+        import config as _cfg
+        pasos = list(getattr(_cfg, "SEGUIMIENTO_ALIAS", []))
+        if not pasos:
+            return
+        _num_limpio = "".join(ch for ch in str(numero) if ch.isdigit())
+        if any(_num_limpio.startswith(p) for p in getattr(_cfg, "PREFIJOS_SIN_SEGUIMIENTO", [])):
+            return
+        if esta_no_molestar(numero):
+            return
+    except Exception as e:
+        print("Error programando seguimiento de alias:", e)
+        return
+
+    anterior = ALIAS_PENDIENTES.pop(numero, None)
+    if anterior:
+        anterior.cancel()
+    t0 = time.time()
+    VENTANA = 23.7 * 3600  # WhatsApp: solo se puede escribir libremente hasta 24 h después del último mensaje del cliente
+
+    def _armar(indice, espera):
+        t = threading.Timer(max(espera, 1), _disparar, args=(indice,))
+        t.daemon = True
+        ALIAS_PENDIENTES[numero] = t
+        t.start()
+
+    def _disparar(indice):
+        ALIAS_PENDIENTES.pop(numero, None)
+        try:
+            if time.time() - t0 > VENTANA or esta_no_molestar(numero):
+                return
+            # De madrugada (0 a 8 hs, Argentina) no escribimos: se pasa a las 8. Solo el ÚLTIMO mensaje
+            # (el del descuento) sale igual si esperar a las 8 lo dejaría fuera de la ventana de 24 h.
+            ahora = datetime.now(timezone(timedelta(hours=-3)))
+            if ahora.hour < 8:
+                hasta_8 = (ahora.replace(hour=8, minute=0, second=0, microsecond=0) - ahora).total_seconds()
+                es_ultimo = indice == len(pasos) - 1
+                if not (es_ultimo and (time.time() + hasta_8 - t0) > VENTANA):
+                    _armar(indice, hasta_8)
+                    return
+            # Si justo está chateando con nosotros, esperamos un rato más.
+            if time.time() - ULTIMA_INTERACCION.get(numero, 0) < 600:
+                _armar(indice, 900)
+                return
+            producto = _producto_para(numero, clave)
+            if not producto:
+                return
+            plantilla = pasos[indice][1]
+            descuento = pasos[indice][2] if len(pasos[indice]) > 2 else 0
+            extra = {}
+            if descuento:
+                # Descuento final: el cliente paga el precio con descuento (vale unas horas).
+                valor_actual = float(producto.get("precio_valor") or 0)
+                nuevo_valor = int(round(valor_actual * (100 - descuento) / 100 / 10.0) * 10)
+                nuevo_precio = "$" + f"{nuevo_valor:,}".replace(",", ".")
+                horas = getattr(_cfg_desc(), "HORAS_VALIDEZ_DESCUENTO", 12)
+                vence_ts = time.time() + horas * 3600
+                activar_promo_hoy(numero, clave, nuevo_precio, nuevo_valor, vence_ts=vence_ts)
+                vence_txt = datetime.fromtimestamp(vence_ts, timezone(timedelta(hours=-3))).strftime("%H:%M")
+                extra = {"{precio_descuento}": nuevo_precio, "{precio_normal}": str(producto["precio"]),
+                         "{vence}": vence_txt, "{descuento}": str(descuento)}
+                producto = _producto_para(numero, clave) or producto
+            texto = (
+                plantilla.replace("{nombre}", _nombre_saludo(numero))
+                .replace("{producto}", producto["titulo"])
+                .replace("{precio}", str(producto["precio"]))
+                .replace("{alias}", DATOS_TRANSFERENCIA["alias"])
+                .replace("{titular}", DATOS_TRANSFERENCIA["titular"])
+            )
+            for k, v in extra.items():
+                texto = texto.replace(k, v)
+            enviar_mensaje_texto(numero, texto)
+            siguiente = indice + 1
+            if siguiente < len(pasos):
+                transcurrido = time.time() - t0
+                _armar(siguiente, max(pasos[siguiente][0] - transcurrido, 3600))
+        except Exception as e:
+            print("Error enviando seguimiento de alias:", e)
+
+    _armar(0, pasos[0][0])
 
 
 def programar_recordatorio_compra(numero, clave):
@@ -1743,6 +1872,17 @@ def manejar_texto(from_number, msg_body_lower):
     marcar_interaccion(from_number)
     msg_normalizado = _normalizar(msg_body_lower)
 
+    # Si dice que no le interesa / que no le escribamos más: se corta TODO seguimiento automático.
+    if any(f in msg_normalizado for f in FRASES_NO_MOLESTAR):
+        marcar_no_molestar(from_number)
+        cancelar_recordatorio(from_number)
+        enviar_mensaje_texto(
+            from_number,
+            "¡Listo, sin problema! 🙌 No te escribo más. Si más adelante te interesa algo, "
+            "escribime cuando quieras y con gusto te ayudo. ¡Que tengas un lindo día! 😊",
+        )
+        return
+
     # 0) ¿El mensaje menciona un producto puntual (ej: "arquitectura y
     #    construcción")? Si es así, vamos DIRECTO a la ficha de ese
     #    producto, sin pasar por la lista general NI por el modo IA.
@@ -1951,6 +2091,7 @@ def manejar_boton(from_number, opcion_id, avisar=True):
                     f"🔥 Pidió los datos de pago: {PRODUCTOS[clave]['titulo']} ({_producto_para(from_number, clave)['precio']})",
                 )
         limpiar_esperando_captura(from_number)  # quiere comprar de nuevo: su próxima imagen sí es un comprobante
+        quitar_no_molestar(from_number)  # volvió a pedir los datos: puede recibir seguimiento otra vez
         producto = _producto_para(from_number, clave)
 
         # Si Mercado Pago está configurado, generamos un link de pago único
@@ -2009,6 +2150,7 @@ def manejar_boton(from_number, opcion_id, avisar=True):
         # para cuando alguien pide directamente el ALIAS (sin pasar antes
         # por la ficha del producto) y después no llega a pagar.
         programar_recordatorio_compra(from_number, clave)
+        programar_recordatorio_alias(from_number, clave)  # si no paga, un aviso a los 10 minutos
 
     elif accion == "ya_pague" and clave in PRODUCTOS:
         enviar_mensaje_texto(
