@@ -692,6 +692,19 @@ def init_db():
     )
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS ventas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            comprobante_id TEXT UNIQUE,
+            numero TEXT NOT NULL,
+            clave TEXT,
+            monto INTEGER NOT NULL DEFAULT 0,
+            fecha TEXT NOT NULL,
+            dia TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS mensajes_procesados (
             id TEXT PRIMARY KEY,
             fecha TEXT NOT NULL
@@ -1191,6 +1204,72 @@ def marcar_comprobante_aprobado(comprobante_id):
     conn.close()
 
 
+def registrar_venta(comprobante_id, numero, clave):
+    """Anota una venta cuando se aprueba un comprobante (una sola vez por comprobante).
+    El monto es el precio que le tocaba a ese cliente (con la promo de hoy si la tenía)."""
+    try:
+        producto = _producto_para(numero, clave) or PRODUCTOS.get(clave) or {}
+        monto = int(producto.get("precio_valor") or 0)
+        ahora = datetime.now(timezone(timedelta(hours=-3)))
+        conn = sqlite3.connect(DB_PATH)
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO ventas (comprobante_id, numero, clave, monto, fecha, dia) VALUES (?, ?, ?, ?, ?, ?)",
+                (str(comprobante_id), numero, clave, monto, ahora.strftime("%d/%m %H:%M"), ahora.date().isoformat()),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:
+        print("Error registrando venta:", e)
+
+
+def _formato_pesos(n):
+    return "$" + f"{int(n):,}".replace(",", ".")
+
+
+def texto_resumen_ventas():
+    """Resumen de ventas (comprobantes aprobados) para el comando /ventas de Telegram."""
+    hoy = datetime.now(timezone(timedelta(hours=-3))).date()
+    periodos = [
+        ("Hoy", hoy),
+        ("Ayer", hoy - timedelta(days=1)),
+        ("Últimos 7 días", hoy - timedelta(days=6)),
+        ("Últimos 30 días", hoy - timedelta(days=29)),
+    ]
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        lineas = ["📊 <b>VENTAS</b> (comprobantes aprobados)\n"]
+        for nombre, desde in periodos:
+            if nombre == "Ayer":
+                fila = conn.execute("SELECT COUNT(*), COALESCE(SUM(monto),0) FROM ventas WHERE dia = ?",
+                                    (desde.isoformat(),)).fetchone()
+            else:
+                fila = conn.execute("SELECT COUNT(*), COALESCE(SUM(monto),0) FROM ventas WHERE dia >= ?",
+                                    (desde.isoformat(),)).fetchone()
+            lineas.append(f"• {nombre}: <b>{fila[0]}</b> ventas · {_formato_pesos(fila[1])}")
+        total = conn.execute("SELECT COUNT(*), COALESCE(SUM(monto),0) FROM ventas").fetchone()
+        lineas.append(f"• Total desde que se empezó a contar: <b>{total[0]}</b> · {_formato_pesos(total[1])}")
+        por_producto = conn.execute(
+            "SELECT clave, COUNT(*), COALESCE(SUM(monto),0) FROM ventas WHERE dia >= ? GROUP BY clave ORDER BY COUNT(*) DESC",
+            ((hoy - timedelta(days=29)).isoformat(),)).fetchall()
+        lineas.append("\n🛍️ <b>Por producto (30 días)</b>")
+        if not por_producto:
+            lineas.append("Todavía no hay ventas anotadas.")
+        for clave, cant, monto in por_producto:
+            titulo = (PRODUCTOS.get(clave) or {}).get("titulo_boton") or clave or "—"
+            lineas.append(f"• {_escapar_html(titulo)}: <b>{cant}</b> · {_formato_pesos(monto)}")
+        ultimas = conn.execute("SELECT fecha, clave, monto, numero FROM ventas ORDER BY id DESC LIMIT 5").fetchall()
+        if ultimas:
+            lineas.append("\n🕒 <b>Últimas ventas</b>")
+            for fecha, clave, monto, numero in ultimas:
+                titulo = (PRODUCTOS.get(clave) or {}).get("titulo_boton") or clave or "—"
+                lineas.append(f"• {fecha} · {_escapar_html(titulo)} · {_formato_pesos(monto)} · {numero[-4:].rjust(4,'*')}")
+        return "\n".join(lineas)
+    finally:
+        conn.close()
+
+
 init_db()
 configurar_webhook_telegram()
 iniciar_backups_automaticos()
@@ -1332,6 +1411,22 @@ def receive_message():
                     f"{texto_cantidad}. Gracias por tu paciencia.",
                 )
 
+        else:
+            # Audios, videos, stickers, ubicaciones, contactos, etc.: el bot no los entiende,
+            # pero te llegan igual a Telegram para que le contestes vos.
+            if tipo != "reaction":
+                _nombres_tipo = {
+                    "audio": "🎤 un audio (nota de voz)", "video": "🎥 un video",
+                    "sticker": "🙂 un sticker", "location": "📍 una ubicación",
+                    "contacts": "👤 un contacto",
+                }
+                _desc = _nombres_tipo.get(tipo, f"un mensaje de tipo «{tipo}»")
+                guardar_mensaje(from_number, "entrante", f"[{tipo}]")
+                enviar_notificacion_telegram(
+                    from_number,
+                    f"Te mandó {_desc}. El bot no lo puede leer: abrilo en WhatsApp y respondele vos.",
+                )
+
     except Exception as e:
         print("Error procesando mensaje:", e)
 
@@ -1430,6 +1525,7 @@ def telegram_webhook():
                         return jsonify({"status": "already_processed"}), 200
                 else:
                     marcar_comprobante_aprobado(comprobante_id)
+                registrar_venta(comprobante_id, numero, clave)
                 desactivar_modo_ia(numero)
                 cancelar_recordatorio(numero)
                 enviar_manuales_completos(numero, clave)
@@ -1465,6 +1561,15 @@ def telegram_webhook():
 
         # Comando manual: escribiendo /backup (sin responder a nada en
         # particular), mandamos el archivo de la base de datos al toque.
+        if texto_admin.lower().split("@")[0] in ("/ventas", "/resumen"):
+            if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+                requests.post(
+                    f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+                    json={"chat_id": TELEGRAM_CHAT_ID, "text": texto_resumen_ventas(), "parse_mode": "HTML"},
+                    timeout=10,
+                )
+            return jsonify({"status": "ventas_enviado"}), 200
+
         if texto_admin.lower() == "/backup":
             enviar_backup_telegram()
             return jsonify({"status": "backup_enviado"}), 200
@@ -3271,6 +3376,7 @@ def panel_aprobar():
         # Usamos el producto que realmente le mostramos a este cliente, no
         # siempre "kit_maestro" (si no, se manda el archivo equivocado).
         clave_producto_actual = PRODUCTO_ACTUAL.get(numero, next(iter(PRODUCTOS)))
+        registrar_venta(comprobante_id, numero, clave_producto_actual)
         enviar_manuales_completos(numero, clave_producto_actual)
     return redirect(f"/panel?numero={numero}")
 
