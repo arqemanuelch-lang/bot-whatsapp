@@ -1723,8 +1723,15 @@ def manejar_entrada_desde_ads(from_number, referral, msg_body_lower=""):
     )
     texto_normalizado = _normalizar(texto_completo)
 
-    clave = detectar_producto_por_texto(texto_normalizado) or "kit_maestro"
-    enviar_ficha_producto(from_number, clave)
+    clave = detectar_producto_por_texto(texto_normalizado)
+    if clave:
+        enviar_ficha_producto(from_number, clave)
+    elif len(PRODUCTOS) == 1:
+        enviar_ficha_producto(from_number, next(iter(PRODUCTOS)))
+    else:
+        # Mensaje genérico ("hola, quiero más información") sin nombrar ningún producto:
+        # primero el saludo de siempre con el botón para elegir, o que escriba su pregunta.
+        enviar_bienvenida_simple(from_number)
 
 
 def _con_nota_respaldo(texto_ia):
@@ -2046,6 +2053,38 @@ def enviar_bienvenida_simple(to):
         },
     }
     _enviar_interactivo(to, payload, texto_bienvenida)
+    _programar_seguimiento_bienvenida(to)
+
+
+def _programar_seguimiento_bienvenida(numero):
+    """Si después del saludo la persona no elige nada ni escribe en SEGUNDOS_SEGUIMIENTO_BIENVENIDA
+    (3 minutos), le mandamos UN solo mensaje más preguntando qué producto le interesa."""
+    try:
+        import config as _cfg
+        _num_limpio = "".join(ch for ch in str(numero) if ch.isdigit())
+        if any(_num_limpio.startswith(p) for p in getattr(_cfg, "PREFIJOS_SIN_SEGUIMIENTO", [])):
+            return
+        espera = getattr(_cfg, "SEGUNDOS_SEGUIMIENTO_BIENVENIDA", 180)
+        texto = getattr(_cfg, "MENSAJE_SEGUIMIENTO_BIENVENIDA", "")
+        if not espera or not texto:
+            return
+    except Exception as e:
+        print("Error programando seguimiento de bienvenida:", e)
+        return
+
+    momento_saludo = time.time()
+
+    def _enviar():
+        try:
+            if ULTIMA_INTERACCION.get(numero, 0) > momento_saludo:
+                return  # ya eligió algo o escribió: no molestamos
+            enviar_mensaje_texto(numero, texto.replace("{nombre}", _nombre_saludo(numero)))
+        except Exception as e:
+            print("Error enviando seguimiento de bienvenida:", e)
+
+    t = threading.Timer(espera, _enviar)
+    t.daemon = True
+    t.start()
 
 
 def enviar_menu_productos(to):
