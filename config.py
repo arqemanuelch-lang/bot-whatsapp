@@ -681,6 +681,8 @@ PRODUCTOS = {
         "precio_valor": 8999,
         "imagen": "",  # PENDIENTE: "Direct link" de imgbb (i.ibb.co/...) de una portada propia
         "imagen_oferta": "",
+        "pausa": 6,  # segundos entre mensaje y mensaje (parece más humano)
+        "imagen_muestra": "https://i.ibb.co/vCBXW7qt/A-A.png",  # foto de muestra, se manda antes del precio
         "emoji_ficha": "💪",
         # PROMO "solo por hoy": todavía sin definir (a pedido, con el precio nuevo de $8.999).
         "sin_recordatorio_corto": True,
